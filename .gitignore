@@ -1,0 +1,12 @@
+logs/
+*.log
+.env
+.env.*
+*.key
+*.key.txt
+*.pem
+*.p12
+*.pfx
+*.tar.gz
+__pycache__/
+*.pyc
