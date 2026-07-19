@@ -20,12 +20,13 @@
 						<view class="log-version">v{{ entry.version }}</view>
 						<view class="log-date">{{ entry.date }}</view>
 					</view>
-					<view class="log-badge">最新</view>
+					<view v-if="entry.version === latestVersion" class="log-badge">最新</view>
 				</view>
 				<view class="log-title">{{ entry.title }}</view>
 				<view class="log-list">
 					<view v-for="item in entry.items" :key="item" class="log-item">{{ item }}</view>
 				</view>
+				<view v-if="entry.signature" class="log-signature">{{ entry.signature }}</view>
 			</view>
 		</scroll-view>
 	</view>
@@ -34,6 +35,24 @@
 <script setup>
 import { DEVLOG_ENTRIES } from '@/data/devlog.js'
 import { APP_VERSION } from '@/utils/app.js'
+
+// 将版本号拆成数字逐位比较，日志顺序调整后“最新”标签仍能自动指向最高版本。
+const compareVersions = (leftVersion, rightVersion) => {
+	const leftParts = String(leftVersion || '').split('.').map(part => Number.parseInt(part, 10) || 0)
+	const rightParts = String(rightVersion || '').split('.').map(part => Number.parseInt(part, 10) || 0)
+	const maxLength = Math.max(leftParts.length, rightParts.length)
+
+	for (let index = 0; index < maxLength; index += 1) {
+		const difference = (leftParts[index] || 0) - (rightParts[index] || 0)
+		if (difference !== 0) return difference
+	}
+
+	return 0
+}
+
+const latestVersion = DEVLOG_ENTRIES.reduce((latest, entry) => {
+	return compareVersions(entry.version, latest) > 0 ? entry.version : latest
+}, '')
 
 const goBack = () => {
 	uni.navigateBack()
@@ -152,5 +171,14 @@ const goBack = () => {
 	font-size: 24rpx;
 	line-height: 1.7;
 	color: #475569;
+}
+
+.log-signature {
+	margin-top: 22rpx;
+	text-align: right;
+	font-size: 24rpx;
+	font-weight: 600;
+	letter-spacing: 2rpx;
+	color: #64748b;
 }
 </style>
