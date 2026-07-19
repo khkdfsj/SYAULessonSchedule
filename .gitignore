@@ -1,0 +1,22 @@
+# IDE 与本机配置
+.vscode/
+.hbuilderx/
+LessonTable/.git.empty-backup/
+
+# 依赖、构建产物和运行缓存
+LessonTable/node_modules/
+LessonTable/unpackage/
+LessonTable/dist/
+LessonTable/dist-*/
+*.log
+*.tmp
+
+# 本地测试截图与系统文件
+*-check.png
+.DS_Store
+Thumbs.db
+
+# 本机密钥和环境变量
+.env
+.env.*
+!.env.example

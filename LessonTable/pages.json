@@ -1,0 +1,124 @@
+{
+	"pages": [ //pages数组中第一项表示应用启动页，参考：https://uniapp.dcloud.io/collocation/pages
+		{
+			"path": "pages/index/index",
+			"style": {
+				"navigationBarTitleText": "我的课表"
+			}
+		},
+		{
+			"path" : "pages/todaylesson/todaylesson",
+			"style" : 
+			{
+				"navigationBarTitleText" : "今日课程"
+			}
+		},
+		{
+			"path" : "pages/login/login",
+			"style" : 
+			{
+				"navigationBarTitleText" : "身份认证"
+			}
+		},
+		{
+			"path" : "pages/agreement/index",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
+			"path" : "pages/settings/settings",
+			"style" : 
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
+			"path" : "pages/course-edit/course-edit",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
+			"path" : "pages/feedback/index",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
+			"path" : "pages/feedback-compose/index",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
+			"path" : "pages/feedback-detail/index",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
+			"path" : "pages/course-comments/index",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
+			"path" : "pages/admin-course-comments/index",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
+			"path" : "pages/admin-feedback/index",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
+			"path" : "pages/devlog/index",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		}
+	],
+	"easycom": {
+		"autoscan": true,
+		"custom": {
+			"^uni-icons$": "@/uni_modules/uni-icons/components/uni-icons/uni-icons.vue",
+			"^uni-popup$": "@/uni_modules/uni-popup/components/uni-popup/uni-popup.vue",
+			"^uni-popup-dialog$": "@/uni_modules/uni-popup/components/uni-popup-dialog/uni-popup-dialog.vue"
+		}
+	},
+	"globalStyle": {
+		"navigationStyle": "custom"
+		
+	},
+	"tabBar": {
+		"height": "58px",
+		"iconWidth": "40px",
+		"list": [
+			{
+				"pagePath": "pages/todaylesson/todaylesson",
+				"iconPath": "static/images/todaylessonIcon.png",
+				"selectedIconPath": "static/images/todaylessonIcon_selected.png"
+			},
+			{
+				"pagePath": "pages/index/index",
+				"iconPath": "static/images/lessonTable.png",
+				"selectedIconPath": "static/images/lessonTable_selected.png"
+				
+			}
+		]
+	},
+	"uniIdRouter": {}
+}

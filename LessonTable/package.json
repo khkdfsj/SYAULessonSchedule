@@ -1,0 +1,18 @@
+{
+  "scripts": {
+    "dev": "cross-env UNI_INPUT_DIR=. vite",
+    "build": "cross-env UNI_INPUT_DIR=. vite build",
+    "preview": "cross-env UNI_INPUT_DIR=. vite preview"
+  },
+  "dependencies": {
+    "@dcloudio/uni-app": "3.0.0-4080720251210001",
+    "vue": "3.4.21"
+  },
+  "devDependencies": {
+    "@dcloudio/vite-plugin-uni": "3.0.0-4080720251210001",
+    "cross-env": "10.1.0",
+    "sass": "1.77.8",
+    "unplugin-auto-import": "19.1.0",
+    "vite": "5.2.8"
+  }
+}
