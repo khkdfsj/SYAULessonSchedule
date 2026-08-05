@@ -14,7 +14,10 @@ define('DB_NAME', 'LessonTable');
 // 系统配置
 define('QUIET_START', '22:00');
 define('QUIET_END', '06:00');
-define('API_URL', 'https://syauinfo.syau.edu.cn/LessonSchedule/LessonScheduleData.php');
+// 新服务器通过仅允许 118.190.147.249 访问的 FRP 通道调用 114 校内课表服务。
+define('API_URL', 'http://140.143.209.222:6151/LessonSchedule/LessonScheduleData.php');
+// 新学期数据发布后必须优先请求上游；上游失败时仍会回退数据库缓存。
+define('FORCE_CACHE_DURING_QUIET_TIME', false);
 define('WECHAT_BROWSER_USER_AGENT', 'Mozilla/5.0 (Linux; Android 5.0; SM-G900P Build/LRX21T) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/33.0.0.0 Mobile Safari/537.36 MicroMessenger/6.0.0.54_r849063.501 NetType/WIFI');
 
 /**********************
@@ -155,7 +158,7 @@ function updateScheduleCache($conn, $userID, $data)
  **********************/
 function handleExistingUser($conn, $userID)
 {
-    if (isQuietTime()) {
+    if (FORCE_CACHE_DURING_QUIET_TIME && isQuietTime()) {
         $cache = getScheduleCache($conn, $userID);
         if ($cache) {
             sendResponse(200, '操作成功', [
@@ -209,7 +212,7 @@ function handleNewUser($conn, $userID)
         sendResponse(500, '用户注册失败');
     }
 
-    if (isQuietTime()) {
+    if (FORCE_CACHE_DURING_QUIET_TIME && isQuietTime()) {
         deleteUser($conn, $userID); // 回滚注册
         sendResponse(403, '静默时段禁止新用户注册');
     }
