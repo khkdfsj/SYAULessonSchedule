@@ -5,7 +5,7 @@ error_reporting(E_ALL);
 header("Content-Type: application/json;charset=utf-8");
 
 // 数据库配置
-define('DB_HOST', '47.122.95.108');
+define('DB_HOST', '118.190.147.249');
 define('DB_PORT', 3306);
 define('DB_USER', 'LessonTable');
 define('DB_PASS', 'syau8848@');
