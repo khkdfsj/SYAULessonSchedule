@@ -3,7 +3,7 @@ date_default_timezone_set('PRC');
 ini_set('display_errors', 1);            //错误信息
 ini_set('display_startup_errors', 1);    //php启动错误信息
 error_reporting(-1);                    //打印出所有的 错误信息
-header("Content-Type: text/html;charset=utf-8");
+header("Content-Type: application/json;charset=utf-8");
 
 //接受参数
 $receivedValue = json_decode(file_get_contents('php://input'), true);
@@ -40,10 +40,37 @@ switch ($ProofOfIdentity) {
         $ScheduleData['courseInfo'] = $ScheduleData['data'];
         ProcessingGraduateData($ScheduleData, $UserID);
         break;
+    default:
+        echo json_encode([
+            'code' => 200,
+            'msg' => '当前无课程信息，请时刻关注教务处官方信息',
+            'UserID' => $UserID,
+            'courseInfo' => []
+        ], JSON_UNESCAPED_UNICODE);
+        break;
 }
 
 function UndergraduateTeacherDataProcessing($ScheduleData, $UserID)
 {
+    if (!is_array($ScheduleData) || !isset($ScheduleData['courseInfo']) || !is_array($ScheduleData['courseInfo'])) {
+        echo json_encode([
+            'code' => 502,
+            'msg' => '教务处课表数据暂不可用，请稍后重试',
+            'UserID' => $UserID,
+            'courseInfo' => []
+        ], JSON_UNESCAPED_UNICODE);
+        return;
+    }
+
+    if (count($ScheduleData['courseInfo']) === 0) {
+        echo json_encode([
+            'code' => 200,
+            'msg' => '当前无课程信息，请时刻关注教务处官方信息',
+            'UserID' => $UserID,
+            'courseInfo' => []
+        ], JSON_UNESCAPED_UNICODE);
+        return;
+    }
 
     foreach ($ScheduleData['courseInfo'] as $i => $course) {
         $weeks = [];
@@ -87,6 +114,25 @@ function UndergraduateTeacherDataProcessing($ScheduleData, $UserID)
 
 function ProcessingGraduateData($ScheduleData, $UserID)
 {
+    if (!is_array($ScheduleData) || !isset($ScheduleData['courseInfo']) || !is_array($ScheduleData['courseInfo'])) {
+        echo json_encode([
+            'code' => 502,
+            'msg' => '教务处课表数据暂不可用，请稍后重试',
+            'UserID' => $UserID,
+            'courseInfo' => []
+        ], JSON_UNESCAPED_UNICODE);
+        return;
+    }
+
+    if (count($ScheduleData['courseInfo']) === 0) {
+        echo json_encode([
+            'code' => 200,
+            'msg' => '当前无课程信息，请时刻关注教务处官方信息',
+            'UserID' => $UserID,
+            'courseInfo' => []
+        ], JSON_UNESCAPED_UNICODE);
+        return;
+    }
 
     foreach ($ScheduleData['courseInfo'] as $i => $course) {
         $weeks = [];

@@ -11,13 +11,8 @@ define('DB_USER', 'LessonTable');
 define('DB_PASS', 'syau8848@');
 define('DB_NAME', 'LessonTable');
 
-// 系统配置
-define('QUIET_START', '22:00');
-define('QUIET_END', '06:00');
-// 新服务器通过仅允许 118.190.147.249 访问的 FRP 通道调用 114 校内课表服务。
-define('API_URL', 'http://140.143.209.222:6151/LessonSchedule/LessonScheduleData.php');
-// 新学期数据发布后必须优先请求上游；上游失败时仍会回退数据库缓存。
-define('FORCE_CACHE_DURING_QUIET_TIME', false);
+// 沿用原项目方案：学校公网网关仅放行微信/企业微信浏览器环境，再转发到 114 课表服务。
+define('API_URL', 'https://syauinfo.syau.edu.cn/LessonSchedule/LessonScheduleData.php');
 define('WECHAT_BROWSER_USER_AGENT', 'Mozilla/5.0 (Linux; Android 5.0; SM-G900P Build/LRX21T) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/33.0.0.0 Mobile Safari/537.36 MicroMessenger/6.0.0.54_r849063.501 NetType/WIFI');
 
 /**********************
@@ -27,7 +22,7 @@ function sendResponse($code, $msg, $data = [])
 {
     http_response_code($code);
     echo json_encode([
-        'code' => 200,
+        'code' => $code,
         'msg' => $msg,
         'data' => $data
     ], JSON_UNESCAPED_UNICODE);
@@ -49,12 +44,6 @@ function logError($message, $userID = null)
 /**********************
  * 工具函数
  **********************/
-function isQuietTime()
-{
-    $current = date("H:i");
-    return $current >= QUIET_START || $current < QUIET_END;
-}
-
 function getValidInput()
 {
     $input = json_decode(file_get_contents('php://input'), true);
@@ -67,40 +56,51 @@ function getValidInput()
     return $input;
 }
 
-function postJsonUrl($url, $data, $timeout = 30)
+function postJsonUrl($url, $data, $timeout = 8)
 {
-    $data = json_encode($data);
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_POST, 1);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        'Content-Type: application/json',
-        'User-Agent: ' . WECHAT_BROWSER_USER_AGENT,
-        'Content-Length: ' . strlen($data)
+    $payload = json_encode($data, JSON_UNESCAPED_UNICODE);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'User-Agent: ' . WECHAT_BROWSER_USER_AGENT,
+            'Content-Length: ' . strlen($payload)
+        ],
+        CURLOPT_POSTFIELDS => $payload,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 3,
+        CURLOPT_TIMEOUT => $timeout
     ]);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-    // 设置超时参数
-    curl_setopt($ch, CURLOPT_TIMEOUT, $timeout); // 总执行时间
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5); // 连接超时时间
 
-    // 执行cURL请求并检查是否有错误发生
-    $response = curl_exec($ch);
-    if (curl_errno($ch)) {
-        $error = curl_error($ch);
-        curl_close($ch);
-        return [false, 504]; // 返回504表示网关超时
-    }
-
-    // 获取HTTP响应状态码
-    $httpStatus = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
-    // 关闭cURL会话
+    $body = curl_exec($ch);
+    $httpStatus = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $error = curl_error($ch);
     curl_close($ch);
 
-    return [$response, $httpStatus];
+    return [$body, $httpStatus, $error];
 }
 
+function fetchOnlineSchedule($userID)
+{
+    list($body, $httpStatus, $error) = postJsonUrl(API_URL, ['UserID' => $userID]);
+    if ($body === false || $httpStatus !== 200) {
+        return [false, [], $error ?: ('HTTP ' . $httpStatus)];
+    }
+
+    $response = json_decode($body, true);
+    $responseCode = is_array($response) && isset($response['code']) ? (int) $response['code'] : null;
+    if ($responseCode !== null && !in_array($responseCode, [0, 200], true)) {
+        return [false, [], isset($response['msg']) ? (string) $response['msg'] : 'schedule service error'];
+    }
+
+    // 教务接口对“当前无课程”的用户不一定返回 code，但会明确返回空 courseInfo。
+    if (!is_array($response) || !isset($response['courseInfo']) || !is_array($response['courseInfo'])) {
+        return [false, [], 'invalid schedule response'];
+    }
+
+    return [true, array_values($response['courseInfo']), ''];
+}
 
 /**********************
  * 数据操作函数
@@ -116,13 +116,6 @@ function userExists($conn, $userID)
 function registerUser($conn, $userID)
 {
     $stmt = $conn->prepare("INSERT INTO user (UserID) VALUES (?)");
-    $stmt->bind_param("s", $userID);
-    return $stmt->execute();
-}
-
-function deleteUser($conn, $userID)
-{
-    $stmt = $conn->prepare("DELETE FROM user WHERE UserID = ?");
     $stmt->bind_param("s", $userID);
     return $stmt->execute();
 }
@@ -145,66 +138,52 @@ function getScheduleCache($conn, $userID)
     return $result->num_rows > 0 ? json_decode($result->fetch_assoc()['ScheduleData'], true) : null;
 }
 
-function updateScheduleCache($conn, $userID, $data)
+function updateScheduleCache($conn, $userID, $courseInfo)
 {
-    $jsonData = json_encode($data);
-    $stmt = $conn->prepare("REPLACE INTO ScheduleData (UserID, ScheduleData, UpdateTime) VALUES (?, ?, NOW())");
-    $stmt->bind_param("ss", $userID, $jsonData);
+    $jsonData = json_encode(array_values($courseInfo), JSON_UNESCAPED_UNICODE);
+    $stmt = $conn->prepare(
+        'REPLACE INTO ScheduleData (UserID, ScheduleData, UpdateTime) VALUES (?, ?, NOW())'
+    );
+    $stmt->bind_param('ss', $userID, $jsonData);
     return $stmt->execute();
 }
 
 /**********************
  * 核心业务处理函数
  **********************/
-function handleExistingUser($conn, $userID)
+function sendCourseResponse($userID, $courseInfo, $source)
 {
-    if (FORCE_CACHE_DURING_QUIET_TIME && isQuietTime()) {
-        $cache = getScheduleCache($conn, $userID);
-        if ($cache) {
-            sendResponse(200, '操作成功', [
-                'UserID' => $userID,
-                'courseInfo' => $cache,
-                'source' => '非api在线时间，数据库缓存'
-            ]);
-        } else {
-            sendResponse(404, '无可用缓存数据');
-        }
-    } else {
-        // 设置5秒超时
-        $timeout = 5;
-        $apiResponse = postJsonUrl(API_URL, ['UserID' => $userID], $timeout);
-        
-        // 判断是否超时或请求失败
-        if ($apiResponse[1] != 200 || $apiResponse === false) {
-            $fallback = getScheduleCache($conn, $userID) ?? [];
-            sendResponse(200, '操作成功', [
-                'UserID' => $userID,
-                'courseInfo' => $fallback,
-                'source' => 'api请求超时或失败，使用数据库缓存'
-            ]);
-            return;
-        }
-        
-        $apiData = json_decode($apiResponse[0], true);
-        if ($apiData && ($apiData['code'] ?? 500) === 200) {
-            updateScheduleCache($conn, $userID, $apiData['courseInfo']);
-            sendResponse(200, '操作成功', [
-                'UserID' => $userID,
-                'courseInfo' => $apiData['courseInfo'],
-                'source' => '在线数据'
-            ]);
-        } else {
-            $fallback = getScheduleCache($conn, $userID) ?? [];
-            sendResponse(200, '操作成功', [
-                'UserID' => $userID,
-                'courseInfo' => $fallback,
-                'source' => 'api数据获取失败，使用数据库缓存'
-            ]);
-        }
-    }
+    $courses = is_array($courseInfo) ? array_values($courseInfo) : [];
+    $message = count($courses) > 0
+        ? '操作成功'
+        : '当前无课程信息，请时刻关注教务处官方信息';
+
+    sendResponse(200, $message, [
+        'UserID' => $userID,
+        'courseInfo' => $courses,
+        'source' => $source
+    ]);
 }
 
+function handleExistingUser($conn, $userID)
+{
+    list($ok, $courseInfo) = fetchOnlineSchedule($userID);
+    if ($ok) {
+        updateScheduleCache($conn, $userID, $courseInfo);
+        sendCourseResponse($userID, $courseInfo, '学校实时数据');
+    }
 
+    $cache = getScheduleCache($conn, $userID);
+    if ($cache !== null) {
+        sendCourseResponse($userID, $cache, '实时请求失败，使用数据库缓存');
+    }
+
+    sendResponse(503, '课表服务暂不可用，请稍后重试', [
+        'UserID' => $userID,
+        'courseInfo' => [],
+        'source' => '学校实时接口不可用'
+    ]);
+}
 
 function handleNewUser($conn, $userID)
 {
@@ -212,27 +191,17 @@ function handleNewUser($conn, $userID)
         sendResponse(500, '用户注册失败');
     }
 
-    if (FORCE_CACHE_DURING_QUIET_TIME && isQuietTime()) {
-        deleteUser($conn, $userID); // 回滚注册
-        sendResponse(403, '静默时段禁止新用户注册');
+    list($ok, $courseInfo) = fetchOnlineSchedule($userID);
+    if ($ok) {
+        updateScheduleCache($conn, $userID, $courseInfo);
+        sendCourseResponse($userID, $courseInfo, '学校实时数据');
     }
 
-    $apiResponse = postJsonUrl(API_URL, ['UserID' => $userID]);
-    if ($apiResponse[1] != 200) {
-        logError("API请求失败，状态码：{$apiResponse[1]}", $userID);
-    }
-
-    $apiData = json_decode($apiResponse[0], true); // 解析返回的JSON
-    if ($apiData && ($apiData['code'] ?? 500) === 200 && updateScheduleCache($conn, $userID, $apiData['courseInfo'])) {
-        sendResponse(200, '操作成功', [
-            'UserID' => $userID,
-            'courseInfo' => $apiData['courseInfo'],
-            'source' => '新用户数据'
-        ]);
-    } else {
-        deleteUser($conn, $userID); // 回滚注册
-        sendResponse(500, '初始数据获取失败');
-    }
+    sendResponse(503, '课表服务暂不可用，请稍后重试', [
+        'UserID' => $userID,
+        'courseInfo' => [],
+        'source' => '学校实时接口不可用'
+    ]);
 }
 
 /**********************
