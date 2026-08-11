@@ -505,7 +505,7 @@ const showFeatureNoticeOnce = () => {
 				uni.setStorageSync(FEATURE_NOTICE_KEY, true)
 			}
 		})
-	}, 450)
+	}, 1700)
 }
 
 const getLocalCoursesByUser = (userID) => {
@@ -1981,6 +1981,7 @@ const GetScheduleData = async () => {
 				icon: 'success',
 				duration: 1500
 			});
+			if (userSettings) showFeatureNoticeOnce()
 		} else {
 			console.warn('没有获取到有效的课表数据');
 			uni.showModal({
@@ -2070,7 +2071,6 @@ const validateServerSession = async () => {
 const loadScheduleBySource = (options = {}) => {
 	const cacheOnly = options.cacheOnly === true
 	ensureCustomCoursesForSemester(ScheduleData.value.UserID)
-	showFeatureNoticeOnce()
 
 	// 自动选择上下课时间表
 	autoSelectScheduleTime();
