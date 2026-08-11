@@ -3,12 +3,14 @@
 
   const API_URL = '/LessonSchedule/announcementApi.php'
   const SESSION_API_URL = '/LessonSchedule/feedbackApi.php'
-  const UPDATE_LOG_URL = '/LessonSchedule/update-log.html'
+  const ANNOUNCEMENT_ADMIN_URL = '/LessonSchedule/announcement-admin.html?v=20260812-4'
   const ANNOUNCEMENT_OVERLAY_ID = 'lesson-announcement-overlay'
   const NIGHT_OVERLAY_ID = 'lesson-night-service-overlay'
   let requestPromise = null
   let scheduledTimer = null
   let moduleLoaded = false
+  let adminAccess = null
+  let adminCheckPromise = null
 
   const readJson = (value) => {
     if (!value) return null
@@ -23,13 +25,16 @@
   }
 
   const readLocalSession = () => {
-    const raw = localStorage.getItem('AuthSession') || readCookie('AuthSession')
-    const value = readJson(raw)
-    if (!value) return null
-    const userId = String(value.userId || value.user_id || '').trim()
-    const authExp = Number(value.authExp || value.auth_exp || 0)
-    const authSig = String(value.authSig || value.auth_sig || '').trim()
-    return userId && authExp && authSig ? { userId, authExp, authSig } : null
+    const normalize = (raw) => {
+      const parsed = readJson(raw)
+      const value = parsed?.type === 'object' && parsed.data ? parsed.data : parsed
+      if (!value) return null
+      const userId = String(value.userId || value.user_id || '').trim()
+      const authExp = Number(value.authExp || value.auth_exp || 0)
+      const authSig = String(value.authSig || value.auth_sig || '').trim()
+      return userId && authExp && authSig ? { userId, authExp, authSig } : null
+    }
+    return normalize(localStorage.getItem('AuthSession')) || normalize(readCookie('AuthSession'))
   }
 
   const isNightServiceWindow = () => {
@@ -108,6 +113,7 @@
       #${overlayId} .lesson-dialog-card{width:min(520px,100%);max-height:82vh;display:flex;flex-direction:column;overflow:hidden;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.28);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
       #${overlayId} .lesson-dialog-title{padding:22px 24px 14px;text-align:center;font-size:21px;font-weight:700;color:#172033}
       #${overlayId} .lesson-dialog-content{padding:0 24px 22px;overflow-y:auto;white-space:pre-wrap;font-size:15px;line-height:1.75;color:#4b5563}
+      #${overlayId} .lesson-dialog-signature{padding:0 24px 22px;text-align:right;white-space:pre-wrap;font-size:14px;line-height:1.7;color:#64748b}
       #${overlayId} .lesson-dialog-confirm{flex:0 0 auto;height:54px;border:0;border-top:1px solid #e5e7eb;background:#fff;color:#1684fc;font-size:17px;font-weight:600}
       #${overlayId} .lesson-dialog-confirm:active{background:#f8fafc}
     `
@@ -115,7 +121,7 @@
     return style
   }
 
-  const renderDialog = ({ id, title, content, onConfirm }) => {
+  const renderDialog = ({ id, title, content, signature = '', onConfirm }) => {
     if (document.getElementById(id)) return false
     const overlay = document.createElement('div')
     overlay.id = id
@@ -125,10 +131,14 @@
       <div class="lesson-dialog-card">
         <div class="lesson-dialog-title"></div>
         <div class="lesson-dialog-content"></div>
+        <div class="lesson-dialog-signature"></div>
         <button type="button" class="lesson-dialog-confirm">知道了</button>
       </div>`
     overlay.querySelector('.lesson-dialog-title').textContent = title
     overlay.querySelector('.lesson-dialog-content').textContent = content
+    const signatureElement = overlay.querySelector('.lesson-dialog-signature')
+    signatureElement.textContent = signature
+    signatureElement.hidden = !signature
     const style = installOverlayStyle(id)
     overlay.querySelector('.lesson-dialog-confirm').addEventListener('click', () => {
       overlay.remove()
@@ -149,6 +159,7 @@
       id: ANNOUNCEMENT_OVERLAY_ID,
       title: announcement.title || '更新公告',
       content: announcement.content || '',
+      signature: announcement.signature || '',
       onConfirm: () => localStorage.setItem(seenKey(announcement), '1')
     })
   }
@@ -189,13 +200,43 @@
     showNightNotice()
   }
 
-  document.addEventListener('click', (event) => {
-    const target = event.target instanceof Element ? event.target.closest('.row-link') : null
-    if (!target || !target.textContent.includes('开发日志')) return
-    event.preventDefault()
-    event.stopImmediatePropagation()
-    window.location.href = UPDATE_LOG_URL
-  }, true)
+  const injectAdminEntry = () => {
+    if (adminAccess !== true || document.querySelector('.lesson-announcement-admin-entry')) return
+    const pageTitle = Array.from(document.querySelectorAll('.nav-title')).find((element) => element.textContent.trim() === '开发日志')
+    const hero = pageTitle?.closest('.page')?.querySelector('.hero')
+    if (!hero) return
+    const entry = document.createElement('div')
+    entry.className = 'lesson-announcement-admin-entry'
+    entry.innerHTML = '<strong>公告推送管理</strong><b>›</b>'
+    entry.addEventListener('click', () => { window.location.href = ANNOUNCEMENT_ADMIN_URL })
+    const style = document.createElement('style')
+    style.textContent = '.lesson-announcement-admin-entry{margin-top:9px;padding:13px 14px;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.92);border-radius:14px;box-shadow:0 7px 17px rgba(15,23,42,.06);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}.lesson-announcement-admin-entry strong{display:block;font-size:14px;color:#1e293b}.lesson-announcement-admin-entry b{font-size:24px;font-weight:400;color:#64748b}'
+    document.head.appendChild(style)
+    hero.insertAdjacentElement('afterend', entry)
+  }
+
+  const checkAndInjectAdminEntry = () => {
+    injectAdminEntry()
+    if (adminAccess !== null || adminCheckPromise) return
+    const pageTitle = Array.from(document.querySelectorAll('.nav-title')).find((element) => element.textContent.trim() === '开发日志')
+    if (!pageTitle) return
+    const session = readLocalSession()
+    if (!session) {
+      adminAccess = false
+      return
+    }
+    adminCheckPromise = postJson(API_URL, {
+      action: 'admin_list',
+      user_id: session.userId,
+      auth_exp: session.authExp,
+      auth_sig: session.authSig
+    }).then((payload) => {
+      adminAccess = Number(payload?.code) === 200
+      injectAdminEntry()
+    }).catch(() => { adminAccess = false }).finally(() => { adminCheckPromise = null })
+  }
+
+  new MutationObserver(checkAndInjectAdminEntry).observe(document.documentElement, { childList: true, subtree: true })
 
   window.LessonScheduleAnnouncements = {
     bootstrap,

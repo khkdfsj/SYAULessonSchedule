@@ -14,6 +14,11 @@
 				<view class="hero-subtitle">记录每次对课表、设置与反馈系统的更新。</view>
 			</view>
 
+			<view v-if="isAdmin" class="announcement-entry" @click="goAnnouncementAdmin">
+				<view class="announcement-entry-title">公告推送管理</view>
+				<uni-icons type="right" size="20" color="#64748b"></uni-icons>
+			</view>
+
 			<view v-for="entry in DEVLOG_ENTRIES" :key="entry.version" class="log-card">
 				<view class="log-header">
 					<view>
@@ -33,8 +38,13 @@
 </template>
 
 <script setup>
+import { ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
+import { getFeedbackSession } from '@/api/feedback.js'
 import { DEVLOG_ENTRIES } from '@/data/devlog.js'
 import { APP_VERSION } from '@/utils/app.js'
+
+const isAdmin = ref(false)
 
 // 将版本号拆成数字逐位比较，日志顺序调整后“最新”标签仍能自动指向最高版本。
 const compareVersions = (leftVersion, rightVersion) => {
@@ -57,6 +67,21 @@ const latestVersion = DEVLOG_ENTRIES.reduce((latest, entry) => {
 const goBack = () => {
 	uni.navigateBack()
 }
+
+const goAnnouncementAdmin = () => {
+	if (typeof window !== 'undefined') {
+		window.location.href = '/LessonSchedule/announcement-admin.html'
+	}
+}
+
+onLoad(async () => {
+	try {
+		const response = await getFeedbackSession()
+		isAdmin.value = response?.data?.is_admin === true
+	} catch (_) {
+		isAdmin.value = false
+	}
+})
 </script>
 
 <style lang="scss" scoped>
@@ -99,6 +124,23 @@ const goBack = () => {
 	background: rgba(255, 255, 255, 0.92);
 	border-radius: 28rpx;
 	box-shadow: 0 14rpx 34rpx rgba(15, 23, 42, 0.06);
+}
+
+.announcement-entry {
+	margin-top: 18rpx;
+	padding: 26rpx 28rpx;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	background: rgba(255, 255, 255, 0.92);
+	border-radius: 28rpx;
+	box-shadow: 0 14rpx 34rpx rgba(15, 23, 42, 0.06);
+}
+
+.announcement-entry-title {
+	font-size: 28rpx;
+	font-weight: 700;
+	color: #1e293b;
 }
 
 .hero {

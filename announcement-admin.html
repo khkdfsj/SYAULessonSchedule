@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>公告推送管理</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f4f7fb,#eef3f9);color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}.shell{width:min(880px,100%);margin:auto;padding:calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 40px)}.nav{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;margin-bottom:18px}.back{height:44px;border:0;border-radius:14px;background:#fff;font-size:25px;color:#334155;box-shadow:0 8px 24px rgba(15,23,42,.06)}h1{margin:0;text-align:center;font-size:22px}.panel,.history-card,.state{background:rgba(255,255,255,.94);border-radius:20px;box-shadow:0 14px 34px rgba(15,23,42,.06)}.panel{display:none;padding:22px}.panel.visible{display:block}.state{padding:32px;text-align:center;color:#64748b}.panel h2{margin:0 0 8px}.muted{color:#64748b;line-height:1.65}.form-grid{display:grid;gap:12px;margin-top:18px}label{font-size:13px;font-weight:700;color:#475569}input,textarea{width:100%;margin-top:7px;border:1px solid #dbe3ee;border-radius:12px;padding:12px 14px;background:#fff;font:inherit;color:#172033}textarea{min-height:210px;resize:vertical}#signatureInput{min-height:88px}.toolbar,.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}button.action{border:0;border-radius:12px;padding:10px 14px;background:#2563eb;color:#fff;font-weight:650}button.secondary{background:#e8eef7;color:#334155}button.warn{background:#d97706}button.danger{background:#dc2626}.section-title{margin:26px 0 8px;font-size:20px}.history-card{padding:20px;margin-top:14px}.history-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.history-card h3{margin:0;font-size:18px}.meta{margin-top:6px;font-size:13px;color:#64748b}.badge{padding:5px 9px;border-radius:999px;background:#e8eef7;color:#475569;font-size:12px;font-weight:700}.badge.active{background:#dcfce7;color:#15803d}.preview{margin-top:16px;padding:14px;border-radius:12px;background:#f8fafc;white-space:pre-wrap;line-height:1.75;color:#475569}.signature{margin-top:12px;text-align:right;white-space:pre-wrap;color:#64748b}.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 28px);transform:translateX(-50%);z-index:20;padding:11px 16px;border-radius:999px;background:#172033;color:#fff;font-size:14px;opacity:0;pointer-events:none;transition:.2s}.toast.show{opacity:1}@media(max-width:520px){.shell{padding-left:12px;padding-right:12px}.panel,.history-card,.state{border-radius:17px}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="nav"><button class="back" type="button" onclick="history.back()">‹</button><h1>公告推送管理</h1><span></span></div>
+    <section id="state" class="state">正在验证管理员身份…</section>
+    <section id="panel" class="panel">
+      <h2>编辑公告</h2>
+      <div class="form-grid">
+        <label>公告标题<input id="titleInput" maxlength="120" placeholder="例如：课表更新说明"></label>
+        <label>公告正文<textarea id="contentInput" maxlength="12000" placeholder="填写公告正文"></textarea></label>
+        <label>签名信息<textarea id="signatureInput" maxlength="500" placeholder="例如：东方世家&#10;2026年8月12日"></textarea></label>
+      </div>
+      <div class="toolbar">
+        <button id="saveDraft" class="action secondary" type="button">保存草稿</button>
+        <button id="publishNew" class="action" type="button">保存并发布</button>
+        <button id="cancelEdit" class="action secondary" type="button" hidden>取消编辑</button>
+      </div>
+      <h2 class="section-title">历史公告推送</h2>
+      <div id="history"></div>
+    </section>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script>
+    const API='/LessonSchedule/announcementApi.php';let editingId=0;let authSession=null;const $=id=>document.getElementById(id);
+    function readCookie(name){const target='LessonSchedule.'+name+'=';const part=(document.cookie||'').split('; ').find(v=>v.startsWith(target));return part?decodeURIComponent(part.slice(target.length)):''}
+    function normalizeSession(raw){if(!raw)return null;try{raw=JSON.parse(raw)}catch(_){return null}if(raw&&raw.type==='object'&&raw.data)raw=raw.data;const user_id=raw.userId||raw.user_id;const auth_exp=Number(raw.authExp||raw.auth_exp||0);const auth_sig=String(raw.authSig||raw.auth_sig||'');return user_id&&auth_exp&&auth_sig?{user_id,auth_exp,auth_sig}:null}function readSession(){return normalizeSession(localStorage.getItem('AuthSession'))||normalizeSession(readCookie('AuthSession'))}
+    async function call(action,data={}){const response=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...data,...authSession})});const json=await response.json();if(!response.ok||Number(json.code)!==200)throw new Error(json.msg||'操作失败');return json.data||{}}
+    function toast(message){const el=$('toast');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200)}
+    function formatDate(value){return value?String(value).replace(' ','  '):'尚未发布'}
+    function resetEditor(){editingId=0;$('titleInput').value='';$('contentInput').value='';$('signatureInput').value='';$('saveDraft').textContent='保存草稿';$('publishNew').hidden=false;$('cancelEdit').hidden=true}
+    function startEdit(item){editingId=item.id;$('titleInput').value=item.title;$('contentInput').value=item.content;$('signatureInput').value=item.signature||'';$('saveDraft').textContent='保存修改';$('publishNew').hidden=true;$('cancelEdit').hidden=false;scrollTo({top:0,behavior:'smooth'})}
+    function renderHistory(items){const root=$('history');root.innerHTML='';if(!items.length){root.innerHTML='<div class="muted">暂无公告记录</div>';return}items.forEach(item=>{const card=document.createElement('article');card.className='history-card';const head=document.createElement('div');head.className='history-head';const left=document.createElement('div');const title=document.createElement('h3');title.textContent=item.title;const meta=document.createElement('div');meta.className='meta';meta.textContent='推送版本 '+item.push_version+' · '+formatDate(item.published_at);left.append(title,meta);const badge=document.createElement('span');badge.className='badge '+(item.popup_enabled?'active':'');badge.textContent=item.status==='draft'?'草稿':item.status==='archived'?'已归档':item.popup_enabled?'正在推送':'弹窗已停止';head.append(left,badge);const body=document.createElement('div');body.className='preview';body.textContent=item.content;const signature=document.createElement('div');signature.className='signature';signature.textContent=item.signature||'';const actions=document.createElement('div');actions.className='actions';const make=(text,cls,fn)=>{const button=document.createElement('button');button.type='button';button.className='action '+cls;button.textContent=text;button.onclick=fn;actions.append(button)};if(item.status!=='archived')make('编辑','secondary',()=>startEdit(item));if(item.status==='draft')make('发布','',()=>adminAction('publish',item.id));if(item.status==='published'){make(item.popup_enabled?'再次全量推送':'全量推送','warn',()=>{if(confirm('确认后，所有用户即使已经看过也会再次收到本公告。是否继续？'))adminAction('repush',item.id)});if(item.popup_enabled)make('停止弹窗','secondary',()=>adminAction('unpublish',item.id))}if(item.status!=='archived')make('归档','danger',()=>{if(confirm('确认归档该公告？'))adminAction('archive',item.id)});card.append(head,body);if(item.signature)card.append(signature);card.append(actions);root.append(card)})}
+    async function refresh(){const data=await call('admin_list');renderHistory(data.items||[])}
+    async function save(publish){const title=$('titleInput').value.trim(),content=$('contentInput').value.trim(),signature=$('signatureInput').value.trim();if(!title||!content){toast('请填写公告标题和正文');return}try{if(editingId){await call('update',{id:editingId,title,content,signature});toast('公告已保存，若需重新提醒用户请点击全量推送')}else{await call('create',{title,content,signature,publish});toast(publish?'公告已发布':'草稿已保存')}resetEditor();await refresh()}catch(error){toast(error.message)}}
+    async function adminAction(action,id){try{await call(action,{id});toast(action==='repush'?'已再次全量推送':'操作成功');await refresh()}catch(error){toast(error.message)}}
+    async function init(){authSession=readSession();if(!authSession){$('state').textContent='仅管理员可以访问公告推送管理';return}try{await refresh();$('state').hidden=true;$('panel').classList.add('visible')}catch(error){$('state').textContent=error.message||'仅管理员可以访问公告推送管理'}}
+    $('saveDraft').onclick=()=>save(false);$('publishNew').onclick=()=>save(true);$('cancelEdit').onclick=resetEditor;init();
+  </script>
+</body>
+</html>

@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS `update_announcements` (
   `announcement_key` varchar(64) NOT NULL,
   `title` varchar(120) NOT NULL,
   `content` text NOT NULL,
+  `signature` varchar(500) NOT NULL DEFAULT '',
   `status` enum('draft','published','archived') NOT NULL DEFAULT 'draft',
   `push_version` int unsigned NOT NULL DEFAULT 1,
   `popup_enabled` tinyint(1) NOT NULL DEFAULT 0,

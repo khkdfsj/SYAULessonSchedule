@@ -41,6 +41,7 @@ function ensureAnnouncementSchema(mysqli $conn): void
             announcement_key varchar(64) NOT NULL,
             title varchar(120) NOT NULL,
             content text NOT NULL,
+            signature varchar(500) NOT NULL DEFAULT '',
             status enum('draft','published','archived') NOT NULL DEFAULT 'draft',
             push_version int unsigned NOT NULL DEFAULT 1,
             popup_enabled tinyint(1) NOT NULL DEFAULT 0,
@@ -60,21 +61,35 @@ function ensureAnnouncementSchema(mysqli $conn): void
         $conn->query("ALTER TABLE update_announcements ADD COLUMN popup_enabled tinyint(1) NOT NULL DEFAULT 0 AFTER push_version");
     }
 
+    $signatureColumn = $conn->query("SHOW COLUMNS FROM update_announcements LIKE 'signature'")->fetch_assoc();
+    if (!$signatureColumn) {
+        $conn->query("ALTER TABLE update_announcements ADD COLUMN signature varchar(500) NOT NULL DEFAULT '' AFTER content");
+    }
+
     $seedKey = '20260812-feature-update';
     $seedTitle = '课表更新说明';
     $seedContent = "1. 新增“问题反馈与建议”：点击右上角“设置”即可进入并提交。\n\n"
         . "2. 新增“课程讨论”：点击课程卡片，再点击详情弹窗右上角图标，即可针对该课程匿名留言。\n\n"
         . "3. 课表与班级群全面联动：教师可通过课程卡片创建班级群，学生可加入已创建的班级群。\n\n"
-        . "4. 查看完整更新日志：点击右上角“设置”即可查看。\n\n"
-        . "东方世家\n2026年8月12日";
+        . "4. 查看完整更新日志：点击右上角“设置”即可查看。";
+    $seedSignature = "东方世家\n2026年8月12日";
+    $legacySeedContent = $seedContent . "\n\n" . $seedSignature;
     $seedUser = '2023195077';
 
     $stmt = $conn->prepare(
         "INSERT IGNORE INTO update_announcements
-            (announcement_key, title, content, status, push_version, popup_enabled, published_at, created_by, updated_by)
-         VALUES (?, ?, ?, 'published', 1, 1, NOW(), ?, ?)"
+            (announcement_key, title, content, signature, status, push_version, popup_enabled, published_at, created_by, updated_by)
+         VALUES (?, ?, ?, ?, 'published', 1, 1, NOW(), ?, ?)"
     );
-    $stmt->bind_param('sssss', $seedKey, $seedTitle, $seedContent, $seedUser, $seedUser);
+    $stmt->bind_param('ssssss', $seedKey, $seedTitle, $seedContent, $seedSignature, $seedUser, $seedUser);
+    $stmt->execute();
+    $stmt->close();
+
+    $stmt = $conn->prepare(
+        "UPDATE update_announcements SET content = ?, signature = ?
+         WHERE announcement_key = ? AND signature = '' AND content = ?"
+    );
+    $stmt->bind_param('ssss', $seedContent, $seedSignature, $seedKey, $legacySeedContent);
     $stmt->execute();
     $stmt->close();
 }
@@ -118,6 +133,7 @@ function announcementRow(array $row): array
         'announcement_key' => (string) $row['announcement_key'],
         'title' => (string) $row['title'],
         'content' => (string) $row['content'],
+        'signature' => (string) $row['signature'],
         'status' => (string) $row['status'],
         'push_version' => (int) $row['push_version'],
         'popup_enabled' => (int) $row['popup_enabled'] === 1,
@@ -138,7 +154,7 @@ try {
 
     if ($action === 'current') {
         $result = $conn->query(
-            "SELECT id, announcement_key, title, content, status, push_version, popup_enabled, published_at, created_at, updated_at
+            "SELECT id, announcement_key, title, content, signature, status, push_version, popup_enabled, published_at, created_at, updated_at
              FROM update_announcements
              WHERE status = 'published' AND popup_enabled = 1
              ORDER BY published_at DESC, id DESC LIMIT 1"
@@ -149,26 +165,12 @@ try {
         ]);
     }
 
-    if ($action === 'logs') {
-        $result = $conn->query(
-            "SELECT id, announcement_key, title, content, status, push_version, popup_enabled, published_at, created_at, updated_at
-             FROM update_announcements
-             WHERE status IN ('published', 'archived')
-             ORDER BY published_at DESC, id DESC LIMIT 100"
-        );
-        $items = [];
-        while ($row = $result->fetch_assoc()) {
-            $items[] = announcementRow($row);
-        }
-        sendAnnouncementJson(200, 200, '更新日志获取成功', ['items' => $items]);
-    }
-
     $context = announcementAdminContext($conn, $input);
     $adminUserId = $context['user_id'];
 
     if ($action === 'admin_list') {
         $result = $conn->query(
-            "SELECT id, announcement_key, title, content, status, push_version, popup_enabled, published_at, created_at, updated_at
+            "SELECT id, announcement_key, title, content, signature, status, push_version, popup_enabled, published_at, created_at, updated_at
              FROM update_announcements ORDER BY id DESC LIMIT 200"
         );
         $items = [];
@@ -178,9 +180,24 @@ try {
         sendAnnouncementJson(200, 200, '公告管理列表获取成功', ['items' => $items]);
     }
 
+    if ($action === 'logs') {
+        $result = $conn->query(
+            "SELECT id, announcement_key, title, content, signature, status, push_version, popup_enabled, published_at, created_at, updated_at
+             FROM update_announcements
+             WHERE status IN ('published', 'archived')
+             ORDER BY published_at DESC, id DESC LIMIT 100"
+        );
+        $items = [];
+        while ($row = $result->fetch_assoc()) {
+            $items[] = announcementRow($row);
+        }
+        sendAnnouncementJson(200, 200, '历史公告获取成功', ['items' => $items]);
+    }
+
     if ($action === 'create') {
         $title = normalizeAnnouncementText($input['title'] ?? '', 120);
         $content = normalizeAnnouncementText($input['content'] ?? '', 12000);
+        $signature = normalizeAnnouncementText($input['signature'] ?? '', 500);
         $publish = !empty($input['publish']);
         if ($title === '' || $content === '') {
             sendAnnouncementJson(422, 422, '公告标题和内容不能为空');
@@ -190,11 +207,11 @@ try {
         $publishedAt = $publish ? date('Y-m-d H:i:s') : null;
         $stmt = $conn->prepare(
             'INSERT INTO update_announcements
-                (announcement_key, title, content, status, push_version, popup_enabled, published_at, created_by, updated_by)
-             VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)'
+                (announcement_key, title, content, signature, status, push_version, popup_enabled, published_at, created_by, updated_by)
+             VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)'
         );
         $popupEnabled = $publish ? 1 : 0;
-        $stmt->bind_param('ssssisss', $key, $title, $content, $status, $popupEnabled, $publishedAt, $adminUserId, $adminUserId);
+        $stmt->bind_param('sssssisss', $key, $title, $content, $signature, $status, $popupEnabled, $publishedAt, $adminUserId, $adminUserId);
         $stmt->execute();
         $id = $stmt->insert_id;
         $stmt->close();
@@ -215,14 +232,15 @@ try {
     if ($action === 'update') {
         $title = normalizeAnnouncementText($input['title'] ?? '', 120);
         $content = normalizeAnnouncementText($input['content'] ?? '', 12000);
+        $signature = normalizeAnnouncementText($input['signature'] ?? '', 500);
         if ($title === '' || $content === '') {
             sendAnnouncementJson(422, 422, '公告标题和内容不能为空');
         }
         $stmt = $conn->prepare(
-            "UPDATE update_announcements SET title = ?, content = ?, updated_by = ?
+            "UPDATE update_announcements SET title = ?, content = ?, signature = ?, updated_by = ?
              WHERE id = ? AND status <> 'archived'"
         );
-        $stmt->bind_param('sssi', $title, $content, $adminUserId, $id);
+        $stmt->bind_param('ssssi', $title, $content, $signature, $adminUserId, $id);
         $stmt->execute();
         $affected = $stmt->affected_rows;
         $stmt->close();
