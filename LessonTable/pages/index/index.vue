@@ -215,8 +215,6 @@ defineOptions({
 
 const CUSTOM_COURSE_STORE_KEY = 'CustomCoursesByUser'
 const CUSTOM_COURSE_META_KEY = 'CustomCourseMetaByUser'
-const FEATURE_NOTICE_KEY = 'FeatureNotice.CustomCourse.v1.seen'
-
 var ScheduleData = ref({
 	UserID: '',
 	TemporaryWeek: 1,
@@ -493,19 +491,9 @@ const ensureCustomCoursesForSemester = (userID) => {
 	}
 }
 
-const showFeatureNoticeOnce = () => {
-	if (uni.getStorageSync(FEATURE_NOTICE_KEY)) return
-	setTimeout(() => {
-		uni.showModal({
-			title: '课表更新说明',
-			content: '已支持自定义课程：在空白格点击一次出现 +，再次点击可新建课程。自定义课程支持编辑和删除，并会与在线课程合并展示。',
-			showCancel: false,
-			confirmText: '知道了',
-			success: () => {
-				uni.setStorageSync(FEATURE_NOTICE_KEY, true)
-			}
-		})
-	}, 1700)
+const showFeatureNoticeOnce = (delay = 350) => {
+	if (typeof window === 'undefined') return
+	window.LessonScheduleAnnouncements?.showCurrent({ delay })
 }
 
 const getLocalCoursesByUser = (userID) => {
@@ -1981,14 +1969,15 @@ const GetScheduleData = async () => {
 				icon: 'success',
 				duration: 1500
 			});
-			if (userSettings) showFeatureNoticeOnce()
+			if (userSettings) showFeatureNoticeOnce(1700)
 		} else {
 			console.warn('没有获取到有效的课表数据');
 			uni.showModal({
 				title: '当前无课程信息',
 				content: '请时刻关注教务处官方信息',
 				showCancel: false,
-				confirmText: '知道了'
+				confirmText: '知道了',
+				success: () => showFeatureNoticeOnce()
 			});
 		}
 	} catch (error) {
@@ -2049,6 +2038,24 @@ const buildComWxAuthEntryUrl = () => {
 		return 'https://syauinfo.syau.edu.cn/LessonSchedule/index.php'
 	}
 	return `https://syauinfo.syau.edu.cn/LessonSchedule/index.php?kind=${encodeURIComponent(window.location.href)}`
+}
+
+const isEnterpriseServiceOfflineTime = () => {
+	const beijingNow = new Date(Date.now() + 8 * 60 * 60 * 1000)
+	const hour = beijingNow.getUTCHours()
+	return hour >= 22 || hour < 6
+}
+
+const showNightServiceNotice = (hasCache) => {
+	uni.showModal({
+		title: hasCache ? '当前使用缓存课表' : '夜间认证服务暂不可用',
+		content: hasCache
+			? '当前为夜间服务关闭时段（22:00–次日06:00），已为你加载本机缓存课表。实时更新、反馈和课程评论等功能请在白天重新认证后使用。'
+			: '当前为夜间服务关闭时段（22:00–次日06:00），企业微信认证和学校实时课表服务暂不可用。当前设备没有可确认身份的课表缓存，请在白天重新进入。',
+		showCancel: false,
+		confirmText: '知道了',
+		success: () => showFeatureNoticeOnce()
+	})
 }
 
 const validateServerSession = async () => {
@@ -2130,6 +2137,25 @@ const bootstrapIndexPage = async (routeParams = {}) => {
 		if (resolvedUserId) {
 			setCurrentUserId(resolvedUserId)
 		}
+	}
+
+	if (!resolvedUserId && isEnterpriseServiceOfflineTime()) {
+		const cachedScheduleData = uni.getStorageSync('ScheduleData')
+		const rememberedUserId = previousSession?.userId || ''
+		const cachedUserId = `${cachedScheduleData?.UserID || ''}`.trim()
+		const canUseCache = !!rememberedUserId && cachedUserId === rememberedUserId &&
+			cachedScheduleData && typeof cachedScheduleData === 'object'
+
+		if (canUseCache) {
+			ScheduleData.value.UserID = rememberedUserId
+			setCurrentUserId(rememberedUserId)
+			loadScheduleBySource({ cacheOnly: true })
+			showNightServiceNotice(true)
+			return
+		}
+
+		showNightServiceNotice(false)
+		return
 	}
 
 	if (!resolvedUserId) {

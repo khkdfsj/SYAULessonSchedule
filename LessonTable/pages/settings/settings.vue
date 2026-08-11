@@ -488,9 +488,11 @@ const goAdminCourseComments = () => {
 }
 
 const goDevlog = () => {
-	uni.navigateTo({
-		url: '/pages/devlog/index'
-	})
+	if (typeof window !== 'undefined') {
+		window.location.href = '/LessonSchedule/update-log.html'
+		return
+	}
+	uni.navigateTo({ url: '/pages/devlog/index' })
 }
 
 const goLogin = () => {

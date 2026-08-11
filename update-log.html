@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>开发日志</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f4f7fb,#eef3f9);color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}.shell{width:min(880px,100%);margin:auto;padding:calc(env(safe-area-inset-top) + 18px) 16px calc(env(safe-area-inset-bottom) + 40px)}.nav{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;margin-bottom:18px}.back{height:44px;border:0;border-radius:14px;background:#fff;font-size:25px;color:#334155;box-shadow:0 8px 24px rgba(15,23,42,.06)}h1{margin:0;text-align:center;font-size:22px}.hero,.card,.admin{background:rgba(255,255,255,.94);border-radius:20px;box-shadow:0 14px 34px rgba(15,23,42,.06)}.hero{padding:24px;margin-bottom:16px}.hero h2{margin:0 0 8px;font-size:24px}.muted{color:#64748b;line-height:1.65}.card{padding:22px;margin-top:14px}.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.card h3{margin:0;font-size:19px}.meta{margin-top:6px;font-size:13px;color:#64748b}.badge{padding:6px 10px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:700}.content{margin-top:18px;white-space:pre-wrap;line-height:1.8;color:#475569}.admin{display:none;padding:22px;margin:18px 0}.admin.visible{display:block}.admin h2{margin:0 0 16px}.form-grid{display:grid;gap:12px}input,textarea{width:100%;border:1px solid #dbe3ee;border-radius:12px;padding:12px 14px;background:#fff;font:inherit;color:#172033}textarea{min-height:220px;resize:vertical}.toolbar,.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}button.action{border:0;border-radius:12px;padding:10px 14px;background:#2563eb;color:#fff;font-weight:650}button.secondary{background:#e8eef7;color:#334155}button.warn{background:#d97706}button.danger{background:#dc2626}.admin-item{padding:16px 0;border-top:1px solid #e8edf4}.admin-item:first-child{border-top:0}.status{font-size:13px;font-weight:700}.status.published{color:#15803d}.status.draft{color:#b45309}.status.archived{color:#64748b}.empty{padding:30px;text-align:center;color:#64748b}.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 28px);transform:translateX(-50%);z-index:20;padding:11px 16px;border-radius:999px;background:#172033;color:#fff;font-size:14px;opacity:0;pointer-events:none;transition:.2s}.toast.show{opacity:1}@media(max-width:520px){.shell{padding-left:12px;padding-right:12px}.hero,.card,.admin{border-radius:17px}.content{font-size:15px}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="nav"><button class="back" type="button" onclick="history.back()">‹</button><h1>开发日志</h1><span></span></div>
+    <section class="hero"><h2>课表更新记录</h2><div class="muted">这里记录已发布的功能更新。管理员登录后可在本页发布、编辑和再次全量推送公告。</div></section>
+    <section id="adminPanel" class="admin">
+      <h2>更新公告管理</h2>
+      <div class="form-grid">
+        <input id="titleInput" maxlength="120" placeholder="公告标题">
+        <textarea id="contentInput" maxlength="12000" placeholder="公告内容"></textarea>
+      </div>
+      <div class="toolbar">
+        <button id="saveDraft" class="action secondary" type="button">保存草稿</button>
+        <button id="publishNew" class="action" type="button">保存并发布</button>
+        <button id="cancelEdit" class="action secondary" type="button" hidden>取消编辑</button>
+      </div>
+      <div id="adminList"></div>
+    </section>
+    <section id="publicLogs"><div class="empty">正在加载更新日志…</div></section>
+  </main>
+  <div id="toast" class="toast"></div>
+  <script>
+    const API='/LessonSchedule/announcementApi.php';let editingId=0;let authSession=null;
+    const $=id=>document.getElementById(id);const escapeText=value=>String(value??'');
+    function readCookie(name){const target='LessonSchedule.'+name+'=';const part=(document.cookie||'').split('; ').find(v=>v.startsWith(target));return part?decodeURIComponent(part.slice(target.length)):''}
+    function readSession(){let raw=localStorage.getItem('AuthSession')||readCookie('AuthSession');if(!raw)return null;try{raw=JSON.parse(raw)}catch(_){return null}const user_id=raw.userId||raw.user_id;const auth_exp=Number(raw.authExp||raw.auth_exp||0);const auth_sig=String(raw.authSig||raw.auth_sig||'');return user_id&&auth_exp&&auth_sig?{user_id,auth_exp,auth_sig}:null}
+    async function call(action,data={},admin=false){const payload={action,...data,...(admin&&authSession?authSession:{})};const response=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const json=await response.json();if(!response.ok||Number(json.code)!==200)throw new Error(json.msg||'操作失败');return json.data||{}}
+    function toast(message){const el=$('toast');el.textContent=message;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2200)}
+    function formatDate(value){return value?String(value).replace(' ','  '):'尚未发布'}
+    function renderLogs(items){const root=$('publicLogs');root.innerHTML='';if(!items.length){root.innerHTML='<div class="empty">暂无已发布的更新日志</div>';return}items.forEach((item,index)=>{const card=document.createElement('article');card.className='card';const head=document.createElement('div');head.className='card-head';const left=document.createElement('div');const title=document.createElement('h3');title.textContent=item.title;const meta=document.createElement('div');meta.className='meta';meta.textContent=formatDate(item.published_at)+' · 推送版本 '+item.push_version;left.append(title,meta);head.append(left);if(index===0){const badge=document.createElement('span');badge.className='badge';badge.textContent='最新';head.append(badge)}const content=document.createElement('div');content.className='content';content.textContent=item.content;card.append(head,content);root.append(card)})}
+    function renderAdmin(items){const root=$('adminList');root.innerHTML='';items.forEach(item=>{const row=document.createElement('div');row.className='admin-item';const title=document.createElement('strong');title.textContent=item.title+' ';const status=document.createElement('span');status.className='status '+item.status;status.textContent='['+(item.status==='draft'?'草稿':item.status==='archived'?'已归档':item.popup_enabled?'正在推送':'已发布，弹窗已停止')+']';const meta=document.createElement('div');meta.className='meta';meta.textContent='推送版本 '+item.push_version+' · '+formatDate(item.published_at);const actions=document.createElement('div');actions.className='actions';const make=(text,cls,fn)=>{const b=document.createElement('button');b.type='button';b.className='action '+cls;b.textContent=text;b.onclick=fn;actions.append(b)};if(item.status!=='archived')make('编辑','secondary',()=>startEdit(item));if(item.status==='draft')make('发布','',()=>adminAction('publish',item.id));if(item.status==='published'){make(item.popup_enabled?'再次全量推送':'全量推送','warn',()=>{if(confirm('所有用户即使已确认过本公告，也会再次收到弹窗。确认继续？'))adminAction('repush',item.id)});if(item.popup_enabled)make('停止弹窗','secondary',()=>adminAction('unpublish',item.id))}if(item.status!=='archived')make('归档','danger',()=>{if(confirm('确认归档该公告？'))adminAction('archive',item.id)});row.append(title,status,meta,actions);root.append(row)})}
+    function startEdit(item){editingId=item.id;$('titleInput').value=item.title;$('contentInput').value=item.content;$('saveDraft').textContent='保存修改';$('publishNew').hidden=true;$('cancelEdit').hidden=false;scrollTo({top:0,behavior:'smooth'})}
+    function resetEditor(){editingId=0;$('titleInput').value='';$('contentInput').value='';$('saveDraft').textContent='保存草稿';$('publishNew').hidden=false;$('cancelEdit').hidden=true}
+    async function refresh(){const logs=await call('logs');renderLogs(logs.items||[]);if(!authSession)return;try{const admin=await call('admin_list',{},true);$('adminPanel').classList.add('visible');renderAdmin(admin.items||[])}catch(_){}}
+    async function save(publish){const title=$('titleInput').value.trim(),content=$('contentInput').value.trim();if(!title||!content){toast('请填写标题和内容');return}try{if(editingId){await call('update',{id:editingId,title,content},true);toast('公告内容已保存')}else{await call('create',{title,content,publish},true);toast(publish?'公告已发布':'草稿已保存')}resetEditor();await refresh()}catch(error){toast(error.message)}}
+    async function adminAction(action,id){try{await call(action,{id},true);toast(action==='repush'?'已再次全量推送':'操作成功');await refresh()}catch(error){toast(error.message)}}
+    $('saveDraft').onclick=()=>save(false);$('publishNew').onclick=()=>save(true);$('cancelEdit').onclick=resetEditor;authSession=readSession();refresh().catch(error=>{$('publicLogs').innerHTML='<div class="empty">'+escapeText(error.message)+'</div>'});
+  </script>
+</body>
+</html>
