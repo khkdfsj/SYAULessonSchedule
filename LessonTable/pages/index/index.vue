@@ -1983,10 +1983,11 @@ const GetScheduleData = async () => {
 			});
 		} else {
 			console.warn('没有获取到有效的课表数据');
-			uni.showToast({
-				title: '课表数据为空',
-				icon: 'none',
-				duration: 2000
+			uni.showModal({
+				title: '当前无课程信息',
+				content: '请时刻关注教务处官方信息',
+				showCancel: false,
+				confirmText: '知道了'
 			});
 		}
 	} catch (error) {
