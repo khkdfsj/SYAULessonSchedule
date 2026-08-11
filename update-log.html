@@ -2,11 +2,22 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta http-equiv="refresh" content="0;url=/LessonSchedule/">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>开发日志</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f4f7fb,#eef3f9);color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}.page{width:min(880px,100%);margin:auto;padding:calc(env(safe-area-inset-top) + 18px) 16px 40px}.nav{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;margin-bottom:18px}.back{height:44px;border:0;border-radius:14px;background:#fff;font-size:25px}.nav h1{margin:0;text-align:center;font-size:22px}.hero,.log-card,.admin-entry{background:rgba(255,255,255,.92);border-radius:16px;box-shadow:0 8px 22px rgba(15,23,42,.06)}.hero,.log-card{padding:22px}.hero h2{margin:0;font-size:23px}.hero p{margin:9px 0 0;color:#64748b}.admin-entry{display:none;margin-top:12px;padding:18px 20px;align-items:center;justify-content:space-between;font-weight:700}.admin-entry.visible{display:flex}.log-card{margin-top:12px}.head{display:flex;justify-content:space-between;gap:12px}.version{font-size:20px;font-weight:700}.date{margin-top:5px;color:#64748b;font-size:13px}.badge{padding:5px 9px;border-radius:999px;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:700}.title{margin-top:16px;font-weight:700}.item{margin-top:10px;padding:12px 14px;border-radius:12px;background:#f8fafc;color:#475569;line-height:1.65}.signature{margin-top:15px;text-align:right;color:#64748b;font-weight:600}
+  </style>
 </head>
 <body>
-  <script>location.replace('/LessonSchedule/')</script>
+  <main class="page">
+    <div class="nav"><button class="back" onclick="history.back()">‹</button><h1>开发日志</h1><span></span></div>
+    <section class="hero"><h2>当前版本 0.3.0</h2><p>记录每次对课表、设置与反馈系统的更新。</p></section>
+    <section id="adminEntry" class="admin-entry" onclick="location.href='/LessonSchedule/announcement-admin.html?v=20260812-6'">公告推送管理 <span>›</span></section>
+    <section class="log-card"><div class="head"><div><div class="version">v0.3.0</div><div class="date">2026-07-19</div></div><span class="badge">最新</span></div><div class="title">课表课程群与稳定性升级</div><div class="item">课程详情新增课程群入口：教师可创建课程群，学生可查看并加入教师已经创建的课程群。</div><div class="item">同一课程号、课序号、教师和学期的所有上课记录共享建群状态，避免从不同星期或周次重复建群。</div><div class="item">课程群状态只在打开课程详情时按需查询，并在入群前实时核验成员，减少服务器请求和重复入群。</div><div class="item">接入群聊助手既有的课程编码、唯一创建、上下学期复用及未加入企业微信成员处理流程。</div><div class="item">补充旧课表缓存的课程号、课序号、教师和学期元数据兼容，并完善跨公网与内网的安全转发链路。</div><div class="signature">东方世家</div></section>
+    <section class="log-card"><div class="head"><div><div class="version">v0.2.0</div><div class="date">2026-03-21</div></div></div><div class="title">反馈中心与课表交互优化</div><div class="item">课表页切换为轻量交互，移除高频粒子动效并优化左右切周体验。</div><div class="item">设置页重构为 iOS 风格分组页面，新增反馈中心入口与开发日志入口。</div><div class="item">新增问题反馈、建议广场、管理员回复与置顶能力。</div><div class="item">引入 30 天签名会话，提升问题私密性与管理员权限校验可靠性。</div></section>
+  </main>
+  <script>
+    function cookie(name){const target='LessonSchedule.'+name+'=';const item=document.cookie.split('; ').find(value=>value.startsWith(target));return item?decodeURIComponent(item.slice(target.length)):''}function normalize(raw){if(!raw)return null;try{raw=JSON.parse(raw)}catch(_){return null}if(raw?.type==='object'&&raw.data)raw=raw.data;const user_id=raw.userId||raw.user_id,auth_exp=Number(raw.authExp||raw.auth_exp||0),auth_sig=String(raw.authSig||raw.auth_sig||'');return user_id&&auth_exp&&auth_sig?{user_id,auth_exp,auth_sig}:null}const session=normalize(localStorage.getItem('AuthSession'))||normalize(cookie('AuthSession'));if(session)fetch('/LessonSchedule/feedbackApi.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'session',...session})}).then(response=>response.json()).then(data=>{if(data?.data?.is_admin)document.getElementById('adminEntry').classList.add('visible')}).catch(()=>{});
+  </script>
 </body>
 </html>

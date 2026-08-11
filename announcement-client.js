@@ -3,14 +3,13 @@
 
   const API_URL = '/LessonSchedule/announcementApi.php'
   const SESSION_API_URL = '/LessonSchedule/feedbackApi.php'
-  const ANNOUNCEMENT_ADMIN_URL = '/LessonSchedule/announcement-admin.html?v=20260812-4'
   const ANNOUNCEMENT_OVERLAY_ID = 'lesson-announcement-overlay'
   const NIGHT_OVERLAY_ID = 'lesson-night-service-overlay'
   let requestPromise = null
   let scheduledTimer = null
   let moduleLoaded = false
-  let adminAccess = null
-  let adminCheckPromise = null
+  let sharedAdminState = null
+  let sharedAdminRequest = null
 
   const readJson = (value) => {
     if (!value) return null
@@ -200,43 +199,43 @@
     showNightNotice()
   }
 
-  const injectAdminEntry = () => {
-    if (adminAccess !== true || document.querySelector('.lesson-announcement-admin-entry')) return
+  const injectAnnouncementAdminEntry = () => {
+    if (sharedAdminState !== true || document.querySelector('.announcement-entry')) return
     const pageTitle = Array.from(document.querySelectorAll('.nav-title')).find((element) => element.textContent.trim() === '开发日志')
     const hero = pageTitle?.closest('.page')?.querySelector('.hero')
     if (!hero) return
     const entry = document.createElement('div')
-    entry.className = 'lesson-announcement-admin-entry'
+    entry.className = 'announcement-entry'
     entry.innerHTML = '<strong>公告推送管理</strong><b>›</b>'
-    entry.addEventListener('click', () => { window.location.href = ANNOUNCEMENT_ADMIN_URL })
+    entry.addEventListener('click', () => { window.location.href = '/LessonSchedule/announcement-admin.html?v=20260812-6' })
     const style = document.createElement('style')
-    style.textContent = '.lesson-announcement-admin-entry{margin-top:9px;padding:13px 14px;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.92);border-radius:14px;box-shadow:0 7px 17px rgba(15,23,42,.06);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}.lesson-announcement-admin-entry strong{display:block;font-size:14px;color:#1e293b}.lesson-announcement-admin-entry b{font-size:24px;font-weight:400;color:#64748b}'
+    style.textContent = '.announcement-entry{margin-top:9px;padding:13px 14px;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.92);border-radius:14px;box-shadow:0 7px 17px rgba(15,23,42,.06);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}.announcement-entry strong{font-size:14px;color:#1e293b}.announcement-entry b{font-size:24px;font-weight:400;color:#64748b}'
     document.head.appendChild(style)
     hero.insertAdjacentElement('afterend', entry)
   }
 
-  const checkAndInjectAdminEntry = () => {
-    injectAdminEntry()
-    if (adminAccess !== null || adminCheckPromise) return
-    const pageTitle = Array.from(document.querySelectorAll('.nav-title')).find((element) => element.textContent.trim() === '开发日志')
-    if (!pageTitle) return
+  const syncAnnouncementAdminEntry = () => {
+    injectAnnouncementAdminEntry()
+    if (sharedAdminState !== null || sharedAdminRequest) return
+    const isDevlogPage = Array.from(document.querySelectorAll('.nav-title')).some((element) => element.textContent.trim() === '开发日志')
+    if (!isDevlogPage) return
     const session = readLocalSession()
     if (!session) {
-      adminAccess = false
+      sharedAdminState = false
       return
     }
-    adminCheckPromise = postJson(API_URL, {
-      action: 'admin_list',
+    sharedAdminRequest = postJson(SESSION_API_URL, {
+      action: 'session',
       user_id: session.userId,
       auth_exp: session.authExp,
       auth_sig: session.authSig
     }).then((payload) => {
-      adminAccess = Number(payload?.code) === 200
-      injectAdminEntry()
-    }).catch(() => { adminAccess = false }).finally(() => { adminCheckPromise = null })
+      sharedAdminState = payload?.data?.authenticated === true && payload?.data?.is_admin === true
+      injectAnnouncementAdminEntry()
+    }).catch(() => { sharedAdminState = false }).finally(() => { sharedAdminRequest = null })
   }
 
-  new MutationObserver(checkAndInjectAdminEntry).observe(document.documentElement, { childList: true, subtree: true })
+  new MutationObserver(syncAnnouncementAdminEntry).observe(document.documentElement, { childList: true, subtree: true })
 
   window.LessonScheduleAnnouncements = {
     bootstrap,
