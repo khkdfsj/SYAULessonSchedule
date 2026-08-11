@@ -11,6 +11,10 @@ define('DB_USER', 'LessonTable');
 define('DB_PASS', 'syau8848@');
 define('DB_NAME', 'LessonTable');
 
+// 学校课表接口夜间不可用：22:00-06:00 强制读取数据库缓存，不访问上游。
+define('QUIET_START', '22:00');
+define('QUIET_END', '06:00');
+
 // 沿用原项目方案：学校公网网关仅放行微信/企业微信浏览器环境，再转发到 114 课表服务。
 define('API_URL', 'https://syauinfo.syau.edu.cn/LessonSchedule/LessonScheduleData.php');
 define('WECHAT_BROWSER_USER_AGENT', 'Mozilla/5.0 (Linux; Android 5.0; SM-G900P Build/LRX21T) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/33.0.0.0 Mobile Safari/537.36 MicroMessenger/6.0.0.54_r849063.501 NetType/WIFI');
@@ -44,6 +48,12 @@ function logError($message, $userID = null)
 /**********************
  * 工具函数
  **********************/
+function isQuietTime()
+{
+    $current = date('H:i');
+    return $current >= QUIET_START || $current < QUIET_END;
+}
+
 function getValidInput()
 {
     $input = json_decode(file_get_contents('php://input'), true);
@@ -167,6 +177,19 @@ function sendCourseResponse($userID, $courseInfo, $source)
 
 function handleExistingUser($conn, $userID)
 {
+    if (isQuietTime()) {
+        $cache = getScheduleCache($conn, $userID);
+        if ($cache !== null) {
+            sendCourseResponse($userID, $cache, '非api在线时间，数据库缓存');
+        }
+
+        sendResponse(503, '当前为夜间缓存时段，暂无可用课表缓存，请在白天重新进入', [
+            'UserID' => $userID,
+            'courseInfo' => [],
+            'source' => '非api在线时间，无可用缓存'
+        ]);
+    }
+
     list($ok, $courseInfo) = fetchOnlineSchedule($userID);
     if ($ok) {
         updateScheduleCache($conn, $userID, $courseInfo);
@@ -187,6 +210,14 @@ function handleExistingUser($conn, $userID)
 
 function handleNewUser($conn, $userID)
 {
+    if (isQuietTime()) {
+        sendResponse(503, '当前为夜间缓存时段，新用户请在白天首次进入并建立课表缓存', [
+            'UserID' => $userID,
+            'courseInfo' => [],
+            'source' => '非api在线时间，无可用缓存'
+        ]);
+    }
+
     if (!registerUser($conn, $userID)) {
         sendResponse(500, '用户注册失败');
     }
