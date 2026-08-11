@@ -70,7 +70,7 @@ const goBack = () => {
 
 const goAnnouncementAdmin = () => {
 	if (typeof window !== 'undefined') {
-		window.location.href = '/LessonSchedule/announcement-admin.html'
+		window.location.href = '/LessonSchedule/announcement-admin.html?v=20260812-7'
 	}
 }
 

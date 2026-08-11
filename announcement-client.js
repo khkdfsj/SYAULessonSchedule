@@ -207,7 +207,7 @@
     const entry = document.createElement('div')
     entry.className = 'announcement-entry'
     entry.innerHTML = '<strong>公告推送管理</strong><b>›</b>'
-    entry.addEventListener('click', () => { window.location.href = '/LessonSchedule/announcement-admin.html?v=20260812-6' })
+    entry.addEventListener('click', () => { window.location.href = '/LessonSchedule/announcement-admin.html?v=20260812-7' })
     const style = document.createElement('style')
     style.textContent = '.announcement-entry{margin-top:9px;padding:13px 14px;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.92);border-radius:14px;box-shadow:0 7px 17px rgba(15,23,42,.06);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}.announcement-entry strong{font-size:14px;color:#1e293b}.announcement-entry b{font-size:24px;font-weight:400;color:#64748b}'
     document.head.appendChild(style)
