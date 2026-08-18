@@ -2179,6 +2179,8 @@ const loadScheduleBySource = (options = {}) => {
 			const cachedOnline = extractOnlineCoursesFromCache(cachedScheduleData)
 			mergeCourseData(cachedOnline, getLocalCoursesByUser(ScheduleData.value.UserID))
 			syncWeekToToday(true);
+			// 缓存模式（含夜间）也异步拉取服务端开学日期，避免顶部日期空白
+			refreshSemesterDateFromServer();
 			return
 		}
 	}
@@ -2195,6 +2197,28 @@ const loadScheduleBySource = (options = {}) => {
 	}
 
 	GetScheduleData();
+}
+
+// 缓存模式（含夜间 cacheOnly）也异步拉取一次服务端开学日期并写入本地。
+// 接口部署在公网 bm，夜间内网 114 端口关闭不影响；服务端夜间会返回数据库缓存且带 semesterStartDate。
+const refreshSemesterDateFromServer = async () => {
+	try {
+		const uid = ScheduleData.value.UserID
+		if (!uid) return
+		const payload = await GetCourseInfo({ UserID: uid })
+		const startDate = payload?.data?.semesterStartDate || payload?.semesterStartDate || ''
+		const mark = payload?.data?.semesterMark || payload?.semesterMark || ''
+		if (startDate && mark) {
+			ScheduleData.value.startDate = startDate
+			ScheduleData.value.semesterMark = mark
+			const cur = uni.getStorageSync('scheduleSettings') || {}
+			uni.setStorageSync('scheduleSettings', { ...cur, startDate, semesterMark: mark })
+			persistScheduleCache()
+			syncWeekToToday(true)
+		}
+	} catch (error) {
+		console.warn('缓存模式拉取服务端开学日期失败:', error)
+	}
 }
 
 const bootstrapIndexPage = async (routeParams = {}) => {
@@ -2378,6 +2402,8 @@ const handleDataSourceUpdated = (dataSource) => {
 			const cachedOnline = extractOnlineCoursesFromCache(cachedData)
 			mergeCourseData(cachedOnline, getLocalCoursesByUser(ScheduleData.value.UserID))
 			syncWeekToToday(true);
+			// 切换到缓存数据也异步拉取服务端开学日期
+			refreshSemesterDateFromServer();
 		}
 	} else if (dataSource === 'online') {
 		// 切换到在线数据，重新获取
