@@ -66,8 +66,3 @@ npm run dev        # vite dev server，接口经 /h5api 代理到线上 debug.91
   ```
 - 回滚：`git checkout vX.Y.Z`（tag 即版本回滚点）
 - 小更新（修订位 0.4.x）只写 commit 日志；大版本升级（0.5.0、1.0.0）才集中撰写开发日志
-
-## 服务器连接
-
-- `ssh bm`（118.190.147.249，免密）；内网服务器用 `ssh114/ssh118/ssh181/ssh003` 等敲门命令（见 ~/.ssh/config）
-- 数据库：bm 本机 MySQL，库 `LessonTable`（旧库 47.122.95.108 已废弃）
