@@ -1916,9 +1916,10 @@ const GetScheduleData = async () => {
 				});
 				persistCurrentWeek(ScheduleData.value.nowWeek);
 			} else if (userSettings && userSettings.startDate) {
-				// 使用用户保存的设置
+				// 使用用户保存的设置（日期已统一走后端，不再采用旧的手动日期）
 				console.log('使用用户保存的设置:', userSettings);
-				ScheduleData.value.startDate = userSettings.startDate;
+				// 开学日期一律以服务端/缓存为准，不再用 settings 里的旧值覆盖（旧值可能是历史手动日期）
+				// ScheduleData.value.startDate = userSettings.startDate;
 				ScheduleData.value.totalWeek = userSettings.totalWeeks || maxWeek;
 				ScheduleData.value.nowWeek = userSettings.currentWeek || 1;
 				ScheduleData.value.TemporaryWeek = ScheduleData.value.nowWeek;
@@ -1927,20 +1928,22 @@ const GetScheduleData = async () => {
 				const calculatedWeek = normalizeWeek(getWeekNumber(ScheduleData.value.startDate));
 				console.log(`根据开学日期计算出的当前周数: ${calculatedWeek}`);
 				
-				// 检测1：开学日期是否是周一（如果用户未开启"开学日期非周一"选项）
+				// 检测1/检测2（开学日期周一校验、学期切换提示）：已随"手动日期"功能一并取消，
+				// 日期由后端校历服务统一管理，不再提示用户手动修正
+				/*
 				if (!userSettings.startDateNotMonday && !isMonday(ScheduleData.value.startDate)) {
 					console.warn('开学日期不是周一:', ScheduleData.value.startDate);
 					setTimeout(() => {
 						showGoToSettingsTip('开学日期异常', '开学日期通常应该是星期一，请检查并手动设置正确的开学日期。如确实非周一，请到设置中开启"本学期开学日期非周一"选项。');
 					}, 1000);
 				}
-				// 检测2：是否需要学期切换
 				else if (needSemesterSwitch(ScheduleData.value.startDate)) {
 					console.warn('检测到可能需要切换学期');
 					setTimeout(() => {
 						showGoToSettingsTip('新学期开始', '检测到可能已进入新学期，请检查并更新开学日期。');
 					}, 1000);
 				}
+				*/
 				
 				// 始终与今天同步，避免停留在历史周次
 				if (calculatedWeek !== ScheduleData.value.nowWeek || calculatedWeek !== ScheduleData.value.TemporaryWeek) {
@@ -1974,9 +1977,9 @@ const GetScheduleData = async () => {
 					uni.setStorageSync('scheduleSettings', settings);
 					console.log('已保存自动计算的设置:', settings);
 					
-					// 首次使用提示：引导用户检查开学日期
+					// 首次使用提示：开学日期由后端校历服务统一管理，无需手动设置
 					setTimeout(() => {
-						showGoToSettingsTip('首次使用提示', `系统已自动推算开学日期为 ${calculatedResult.startDate}，如果推算不正确，请点击右上角齿轮图标手动设置。`);
+						showGoToSettingsTip('首次使用提示', `开学日期已按学校校历设置为 ${calculatedResult.startDate}，系统将自动同步。`);
 					}, 1500);
 				} else {
 					// 使用默认值
@@ -2007,9 +2010,9 @@ const GetScheduleData = async () => {
 					};
 					uni.setStorageSync('scheduleSettings', settings);
 					
-					// 首次使用提示
+					// 首次使用提示：开学日期由后端校历服务统一管理，无需手动设置
 					setTimeout(() => {
-						showGoToSettingsTip('首次使用提示', `系统已使用默认开学日期 ${ScheduleData.value.startDate}，请检查是否正确，如有需要请点击右上角齿轮图标手动设置。`);
+						showGoToSettingsTip('首次使用提示', `开学日期已按学校校历设置，系统将自动同步。`);
 					}, 1500);
 				}
 			}
