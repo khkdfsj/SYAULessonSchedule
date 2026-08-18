@@ -2225,6 +2225,15 @@ const bootstrapIndexPage = async (routeParams = {}) => {
 	updateLayoutMetrics();
 	closeBottomSheet();
 
+	// 夜间（22:00–次日06:00）自动切换到缓存数据模式：内网实时接口关闭，实时取不到；
+	// 界面同步显示"缓存数据"，日期由缓存路径异步从公网接口拉取
+	if (isEnterpriseServiceOfflineTime()) {
+		const curSettings = uni.getStorageSync('scheduleSettings') || {}
+		if (curSettings.dataSource !== 'cache') {
+			uni.setStorageSync('scheduleSettings', { ...curSettings, dataSource: 'cache' })
+		}
+	}
+
 	const previousSession = getAuthSession()
 	const routeSession = saveAuthSessionFromRoute(routeParams)
 	let sessionInfo = await validateServerSession()
