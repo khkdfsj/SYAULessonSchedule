@@ -23,7 +23,7 @@
 					<text>当前学号：{{ currentUserId }}</text>
 					<text>身份来源：{{ identitySummary.sourceLabel }}</text>
 					<text>管理员：{{ sessionInfo.is_admin ? '是' : '否' }}</text>
-					<text>数据来源：{{ settings.dataSource === 'online' ? '在线数据' : '缓存数据' }}</text>
+					<text>数据来源：{{ settings.dataSource === 'online' ? '在线数据' : (isNightTime() ? '缓存数据（夜间强制使用）' : '缓存数据') }}</text>
 				</view>
 			</view>
 
@@ -50,14 +50,14 @@
 					</view>
 					<view class="row-value">{{ identitySummary.account }}</view>
 				</view>
-				<view class="row">
+				<view class="row" v-if="identitySummary.authSource !== 'qywx'">
 					<view class="row-main">
 						<view class="row-title">记住密码</view>
 						<view class="row-subtitle">只保存在当前设备浏览器，本机可随时清除。</view>
 					</view>
 					<view class="row-value">{{ identitySummary.rememberPassword ? '已开启' : '未开启' }}</view>
 				</view>
-				<view class="row row-link" @click="goLogin">
+				<view class="row row-link" v-if="identitySummary.authSource !== 'qywx'" @click="goLogin">
 					<view class="row-main">
 						<view class="row-title">{{ identitySummary.authSource === 'manual' ? '重新登录' : '打开登录页' }}</view>
 						<view class="row-subtitle">手动登录可重新获取签名，并更新本地账号信息。</view>
