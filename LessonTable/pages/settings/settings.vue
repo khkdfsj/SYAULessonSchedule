@@ -122,11 +122,12 @@
 							:class="{ active: settings.dataSource === 'cache' }"
 							@click="switchDataSource('cache')"
 						>
-							缓存数据
+							{{ isNightTime() ? '缓存数据（夜间强制使用）' : '缓存数据' }}
 						</view>
 					</view>
+					<view v-if="isNightTime()" class="night-note">夜间时段（22:00–次日06:00）内网课表服务关闭，当前强制使用缓存数据。</view>
 				</view>
-				<view v-if="settings.dataSource === 'cache'" class="row row-link" @click="updateCourseData">
+				<view v-if="settings.dataSource === 'cache'" class="row row-link" :class="{ disabled: isNightTime() }" @click="onUpdateCacheClick">
 					<view class="row-main">
 						<view class="row-title">更新缓存数据</view>
 						<view class="row-subtitle">白天拉取在线课表并刷新缓存。</view>
@@ -390,8 +391,20 @@ const loadSession = async () => {
 	}
 }
 
+const isNightTime = () => {
+	const beijingHour = new Date(Date.now() + 8 * 3600 * 1000).getUTCHours()
+	return beijingHour >= 22 || beijingHour < 6
+}
+
 const switchDataSource = (source) => {
 	if (settings.value.dataSource === source) return
+	if (source === 'online' && isNightTime()) {
+		uni.showToast({
+			title: '当前时间段在线数据不可用，请在白天操作',
+			icon: 'none'
+		})
+		return
+	}
 	if (source === 'cache') {
 		uni.showModal({
 			title: '切换数据源',
@@ -409,6 +422,17 @@ const switchDataSource = (source) => {
 	settings.value.dataSource = source
 	saveSettings()
 	uni.$emit('dataSourceUpdated', source)
+}
+
+const onUpdateCacheClick = () => {
+	if (isNightTime()) {
+		uni.showToast({
+			title: '夜间时段无法更新缓存，请在白天操作',
+			icon: 'none'
+		})
+		return
+	}
+	updateCourseData()
 }
 
 const updateCourseData = () => {
@@ -729,6 +753,20 @@ onUnload(() => {
 
 .row-link:active {
 	opacity: 0.72;
+}
+
+.row-link.disabled {
+	opacity: 0.55;
+}
+
+.night-note {
+	margin-top: 16rpx;
+	padding: 14rpx 20rpx;
+	border-radius: 12rpx;
+	background: #eef2ff;
+	font-size: 22rpx;
+	line-height: 1.6;
+	color: #4338ca;
 }
 
 .row-value {

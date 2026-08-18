@@ -2,8 +2,8 @@
     "name" : "LessonTable",
     "appid" : "__UNI__132B5B2",
     "description" : "",
-    "versionName" : "0.4.5",
-    "versionCode" : "405",
+    "versionName" : "0.4.6",
+    "versionCode" : "406",
     "transformPx" : false,
     /* 5+App特有相关 */
     "app-plus" : {
