@@ -343,7 +343,12 @@ const sheetDragStartY = ref(0)
 const sheetDragOffsetY = ref(0)
 const animationEnabled = ref(true)
 const armedEmptySlot = ref(null)
-const swiperCurrent = ref(1)
+// 当前周在滑动面板中的索引（第1周=0、中间=1、最后一周=末位；随面板结构自动计算）
+const swiperCurrent = computed(() => {
+	const currentWeek = clampWeekNumber(ScheduleData.value.TemporaryWeek || 1)
+	const idx = displayWeekPanels.value.findIndex(p => p.week === currentWeek)
+	return idx >= 0 ? idx : 0
+})
 let sheetCloseTimer = null
 const layoutMetrics = ref({
 	mode: 'default',
@@ -885,16 +890,18 @@ const isCourseInWeek = (course, weekNumber) => {
 
 const displayWeekPanels = computed(() => {
 	const currentWeek = clampWeekNumber(ScheduleData.value.TemporaryWeek || 1)
-	return [{
-		key: `${currentWeek}-prev`,
-		week: clampWeekNumber(currentWeek - 1)
-	}, {
-		key: `${currentWeek}-current`,
-		week: currentWeek
-	}, {
-		key: `${currentWeek}-next`,
-		week: clampWeekNumber(currentWeek + 1)
-	}]
+	const maxWeek = Math.max(1, Number(ScheduleData.value.totalWeek) || 20)
+	// 边界裁剪：第1周不生成"上一周"面板、最后一周不生成"下一周"面板，
+	// 避免出现可滑到的重复周（"两个第1周"）
+	const panels = []
+	if (currentWeek > 1) {
+		panels.push({ key: `${currentWeek}-prev`, week: currentWeek - 1 })
+	}
+	panels.push({ key: `${currentWeek}-current`, week: currentWeek })
+	if (currentWeek < maxWeek) {
+		panels.push({ key: `${currentWeek}-next`, week: currentWeek + 1 })
+	}
+	return panels
 })
 
 const getWeekCourses = (weekNumber) => {
@@ -1328,21 +1335,9 @@ const swiperSwitchWeek = function (e) {
 	const index = Number(e.detail.current)
 	const panel = displayWeekPanels.value[index]
 	if (!panel) return
-	// 边界处理：第1周/最后一周时，上/下层面板被 clamp 成重复的当前周，
-	// 此时不允许切到重复面板（回弹到当前周），避免出现"两个相同周"并可继续乱滑
-	const currentWeek = clampWeekNumber(ScheduleData.value.TemporaryWeek || 1)
-	if (panel.week === currentWeek && index !== 1) {
-		nextTick(() => {
-			swiperCurrent.value = 1
-		})
-		return
-	}
+	// 面板已按边界裁剪（第1周无"上一周"面板、最后一周无"下一周"面板），
+	// 不存在可滑到的重复周，直接切到目标面板的周次即可
 	switchWeekFn(panel.week)
-	if (index !== 1) {
-		nextTick(() => {
-			swiperCurrent.value = 1
-		})
-	}
 }
 
 //底部poppup切换选中周数
@@ -1356,7 +1351,6 @@ const ViewWeeklySchedule = function (ActiveWeek, event) {
 const switchWeekFn = function (week) {
 	clearArmedEmptySlot()
 	ScheduleData.value.TemporaryWeek = clampWeekNumber(week);
-	swiperCurrent.value = 1
 	getWeekDates(ScheduleData.value.startDate, ScheduleData.value.TemporaryWeek, ScheduleData.value.weekDayCount)
 }
 
