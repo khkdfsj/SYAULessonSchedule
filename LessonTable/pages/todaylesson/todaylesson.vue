@@ -219,6 +219,26 @@ const getTodayCourses = () => {
 	
 	// 获取今天是星期几（1-7，对应周一至周日）
 	const today = new Date();
+
+	// 开学前判断：今天在开学日期之前 → 还没开学，今天无课程
+	const startDateStr = scheduleData.startDate || (settings && settings.startDate) || ''
+	if (startDateStr) {
+		let startDateObj;
+		if (startDateStr.includes('/')) {
+			startDateObj = new Date(startDateStr);
+		} else if (startDateStr.includes('-')) {
+			startDateObj = new Date(startDateStr.replace(/-/g, '/'));
+		}
+		if (startDateObj && !isNaN(startDateObj.getTime()) && today < startDateObj) {
+			console.log('还未开学（今天早于开学日期），今天无课程');
+			currentWeek.value = 1;
+			morningCourses.value = [];
+			afternoonCourses.value = [];
+			eveningCourses.value = [];
+			return;
+		}
+	}
+
 	let weekday = today.getDay(); // 0-6，0表示周日
 	
 	// 转换为课表中的week格式（1-7，周一为1）

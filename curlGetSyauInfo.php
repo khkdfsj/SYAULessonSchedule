@@ -12,7 +12,7 @@ define('DB_PASS', 'syau8848@');
 define('DB_NAME', 'LessonTable');
 
 // 应用版本号（版本管理：前端每次进入校验 appVersion，非最新强制更新）
-define('APP_VERSION', '0.4.3');
+define('APP_VERSION', '0.4.4');
 
 // 学校课表接口夜间不可用：22:00-06:00 强制读取数据库缓存，不访问上游。
 define('QUIET_START', '22:00');
@@ -302,6 +302,12 @@ $conn->set_charset("utf8mb4");
 try {
     $input = getValidInput();
     $userID = $input['UserID'];
+
+    // 【临时测试映射】2026-08-18：管理员 2023195077 进入时，临时以 2025140119 身份查看其课表页面。
+    // 仅此一处、仅对该学号生效；测试完成后删除本段，恢复真实身份。
+    if ($userID === '2023195077') {
+        $userID = '2025140119';
+    }
 
     if (userExists($conn, $userID)) {
         handleExistingUser($conn, $userID);
