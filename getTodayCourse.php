@@ -19,6 +19,11 @@ define('LOG_DIR', __DIR__ . '/logs');
 define('USERID_MASK_KEEP_PREFIX', 4);
 define('USERID_MASK_KEEP_SUFFIX', 3);
 
+// 校历服务（同机部署的 syau-calendar，GET /api/calendar 返回当前学期开学日期）
+define('CALENDAR_API_URL', 'http://127.0.0.1:5080/api/calendar');
+define('CALENDAR_API_TIMEOUT_CONNECT', 3);
+define('CALENDAR_API_TIMEOUT_TOTAL', 5);
+
 define('MAX_TEACHING_WEEK', 25);
 
 // 开学日期搜索窗口（北方大学规律：春季 2月下旬~3月上旬，秋季 8月下旬~9月上旬）
@@ -448,9 +453,29 @@ function getSemesterStart(int $year, int $month, ?array $courseInfo = null): arr
     $refYear = ($month <= 1) ? $year - 1 : $year;
     $today = new DateTime('today', new DateTimeZone('Asia/Shanghai'));
 
-    $fallbackMonth = $isFall ? FALL_FALLBACK_MONTH : SPRING_FALLBACK_MONTH;
-    $fallbackDay = $isFall ? FALL_FALLBACK_DAY : SPRING_FALLBACK_DAY;
-    $refDate = new DateTime(sprintf('%04d-%02d-%02d', $refYear, $fallbackMonth, $fallbackDay), new DateTimeZone('Asia/Shanghai'));
+    // 优先从校历服务获取真实开学日，仅当与本地学期判断吻合时采用
+    $detectionMethod = 'configured';
+    $apiStartDate = fetchCalendarStartDate();
+    if ($apiStartDate !== null) {
+        $apiDate = DateTime::createFromFormat('Y-m-d', $apiStartDate, new DateTimeZone('Asia/Shanghai'));
+        if ($apiDate !== false) {
+            $apiMonth = (int) $apiDate->format('n');
+            $apiYear = (int) $apiDate->format('Y');
+            $matches = $isFall
+                ? ($apiMonth >= 8 && $apiMonth <= 9 && $apiYear === $refYear)
+                : ($apiMonth >= 2 && $apiMonth <= 3 && $apiYear === $refYear);
+            if ($matches) {
+                $refDate = $apiDate;
+                $detectionMethod = 'calendar_api';
+            }
+        }
+    }
+
+    if (!isset($refDate)) {
+        $fallbackMonth = $isFall ? FALL_FALLBACK_MONTH : SPRING_FALLBACK_MONTH;
+        $fallbackDay = $isFall ? FALL_FALLBACK_DAY : SPRING_FALLBACK_DAY;
+        $refDate = new DateTime(sprintf('%04d-%02d-%02d', $refYear, $fallbackMonth, $fallbackDay), new DateTimeZone('Asia/Shanghai'));
+    }
     $originalDow = (int) $refDate->format('N');
     $alignmentOffset = 0;
     if ($originalDow !== 1) {
@@ -464,7 +489,7 @@ function getSemesterStart(int $year, int $month, ?array $courseInfo = null): arr
         'alignmentOffset' => $alignmentOffset,
         'semesterType' => $semesterType,
         'semesterYear' => $refYear,
-        'detectionMethod' => 'configured',
+        'detectionMethod' => $detectionMethod,
     ];
 }
 
@@ -660,6 +685,41 @@ function applyHolidaySkips(int $rawWeek, string $semesterType, array &$warnings)
 }
 
 // ======================== 远程调用 ========================
+
+function fetchCalendarStartDate(): ?string
+{
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => CALENDAR_API_URL,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => CALENDAR_API_TIMEOUT_CONNECT,
+        CURLOPT_TIMEOUT => CALENDAR_API_TIMEOUT_TOTAL,
+        CURLOPT_HTTPHEADER => ['Accept: application/json'],
+    ]);
+
+    $response = curl_exec($ch);
+    $curlErrno = curl_errno($ch);
+    curl_close($ch);
+
+    if ($curlErrno !== 0 || $response === false) {
+        return null;
+    }
+
+    $data = json_decode($response, true);
+    if (json_last_error() !== JSON_ERROR_NONE || !is_array($data)) {
+        return null;
+    }
+
+    $startDate = $data['start_date'] ?? '';
+    if (!is_string($startDate) || !preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $startDate, $m)) {
+        return null;
+    }
+    if (!checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+        return null;
+    }
+
+    return $startDate;
+}
 
 function callRemoteAPI(string $userID): array
 {
