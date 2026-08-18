@@ -2289,8 +2289,23 @@ onLoad((e) => {
 	bootstrapIndexPage(e || {})
 });
 
+// 一次性清除历史手动开学日期：代码更新前用户自定义的开学日期（无服务端 semesterMark 标记）一律擦除
+const cleanupLegacyManualStartDate = () => {
+	try {
+		const cur = uni.getStorageSync('scheduleSettings') || {}
+		if (cur && cur.startDate && !cur.semesterMark) {
+			uni.setStorageSync('scheduleSettings', { ...cur, startDate: '' })
+			console.log('已清除历史手动开学日期:', cur.startDate)
+		}
+	} catch (error) {
+		console.warn('清除历史手动开学日期失败:', error)
+	}
+}
+
 // 从本地存储加载设置
 const loadSettings = () => {
+	// 先清除历史手动开学日期（无 semesterMark 的旧自定义日期），日期一律以后端下发为准
+	cleanupLegacyManualStartDate()
 	const settings = uni.getStorageSync('scheduleSettings');
 	animationEnabled.value = settings?.enableAnimation !== false
 	if (!animationEnabled.value) {
