@@ -303,12 +303,6 @@ try {
     $input = getValidInput();
     $userID = $input['UserID'];
 
-    // 【临时测试映射】2026-08-18：管理员 2023195077 进入时，临时以 2025140119 身份查看其课表页面。
-    // 仅此一处、仅对该学号生效；测试完成后删除本段，恢复真实身份。
-    if ($userID === '2023195077') {
-        $userID = '2025140119';
-    }
-
     if (userExists($conn, $userID)) {
         handleExistingUser($conn, $userID);
     } else {
