@@ -168,11 +168,61 @@ function sendCourseResponse($userID, $courseInfo, $source)
         ? '操作成功'
         : '当前无课程信息，请时刻关注教务处官方信息';
 
-    sendResponse(200, $message, [
+    $data = [
         'UserID' => $userID,
         'courseInfo' => $courses,
         'source' => $source
+    ];
+
+    // 方案B：从同机校历服务获取本学期开学日期并下发（前端服务端优先，强制采用）
+    $calendar = fetchCalendarInfo();
+    if ($calendar !== null) {
+        $data['semesterStartDate'] = $calendar['start_date'];
+        $data['semesterMark'] = $calendar['mark'];
+    }
+
+    sendResponse(200, $message, $data);
+}
+
+/**
+ * 从同机校历服务（syau-calendar, 127.0.0.1:5080）获取当前学期开学日期与学期标记。
+ * @return array|null ['start_date' => 'Y-m-d', 'mark' => '2026-fall']
+ */
+function fetchCalendarInfo(): ?array
+{
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => 'http://127.0.0.1:5080/api/calendar',
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 3,
+        CURLOPT_TIMEOUT => 5,
+        CURLOPT_HTTPHEADER => ['Accept: application/json'],
     ]);
+    $response = curl_exec($ch);
+    $curlErrno = curl_errno($ch);
+    curl_close($ch);
+
+    if ($curlErrno !== 0 || $response === false) {
+        return null;
+    }
+
+    $data = json_decode($response, true);
+    if (!is_array($data) || !isset($data['start_date'])) {
+        return null;
+    }
+
+    $startDate = (string) $data['start_date'];
+    if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $startDate, $m)) {
+        return null;
+    }
+    if (!checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+        return null;
+    }
+
+    $month = (int) $m[2];
+    $year = (int) $m[1];
+    $mark = ($month >= 8) ? $year . '-fall' : $year . '-spring';
+    return ['start_date' => $startDate, 'mark' => $mark];
 }
 
 function handleExistingUser($conn, $userID)

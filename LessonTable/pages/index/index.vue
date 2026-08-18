@@ -1844,6 +1844,9 @@ const GetScheduleData = async () => {
 		});
 
 		const onlineCourseList = normalizeCourseList(parseCourseListFromResponse(payload), 'online')
+		// 方案B：后端统一下发的开学日期与学期标记
+		const serverStartDate = payload?.data?.semesterStartDate || payload?.semesterStartDate || ''
+		const serverMark = payload?.data?.semesterMark || payload?.semesterMark || ''
 		if (onlineCourseList.length > 0) {
 			mergeCourseData(onlineCourseList, getLocalCoursesByUser(ScheduleData.value.UserID))
 			console.log('获取到的在线课表数据:', onlineCourseList);
@@ -1858,7 +1861,25 @@ const GetScheduleData = async () => {
 				maxWeek = weekAnalysis.maxWeek;
 			}
 			
-			if (userSettings && userSettings.startDate) {
+			if (serverStartDate) {
+				// 方案B：后端统一管理开学日期（服务端优先；semesterMark 变化时强制重置旧设置）
+				console.log('使用服务端开学日期:', serverStartDate, serverMark);
+				ScheduleData.value.startDate = serverStartDate;
+				ScheduleData.value.semesterMark = serverMark;
+				ScheduleData.value.totalWeek = maxWeek;
+				ScheduleData.value.nowWeek = getWeekNumber(serverStartDate);
+				ScheduleData.value.TemporaryWeek = ScheduleData.value.nowWeek;
+				uni.setStorageSync('scheduleSettings', {
+					...userSettings,
+					startDate: serverStartDate,
+					semesterMark: serverMark,
+					totalWeeks: maxWeek,
+					currentWeek: ScheduleData.value.nowWeek,
+					dataSource: 'online',
+					isFirstUse: false
+				});
+				persistCurrentWeek(ScheduleData.value.nowWeek);
+			} else if (userSettings && userSettings.startDate) {
 				// 使用用户保存的设置
 				console.log('使用用户保存的设置:', userSettings);
 				ScheduleData.value.startDate = userSettings.startDate;

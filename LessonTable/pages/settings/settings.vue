@@ -133,11 +133,11 @@
 					</view>
 					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
 				</view>
-				<picker mode="date" :value="settings.startDate" @change="onStartDateChange">
+				<picker v-if="settings.dataSource === 'cache'" mode="date" :value="settings.startDate" @change="onStartDateChange">
 					<view class="row row-link">
 						<view class="row-main">
 							<view class="row-title">开学日期</view>
-							<view class="row-subtitle">用于自动计算当前周次。</view>
+							<view class="row-subtitle">在线模式下由后端统一提供，缓存模式下手动设置。</view>
 						</view>
 						<view class="row-value">{{ settings.startDate || '请选择' }}</view>
 					</view>
@@ -160,7 +160,7 @@
 					</view>
 					<switch :checked="settings.enableAnimation" color="#2563eb" @change="onEnableAnimationChange" />
 				</view>
-				<view class="row">
+				<view v-if="settings.dataSource === 'cache'" class="row">
 					<view class="row-main">
 						<view class="row-title">开学日期非周一</view>
 						<view class="row-subtitle">确实不是周一时开启，本学期内保留。</view>
@@ -314,10 +314,16 @@ const refreshIdentitySummary = () => {
 }
 
 const getCurrentSemesterMark = () => {
+	// 优先使用后端下发的学期标记（方案B），判定规则与后端一致：1月归上一年 fall
+	const sd = uni.getStorageSync('ScheduleData')
+	if (sd && sd.semesterMark) return sd.semesterMark
 	const today = new Date()
 	const year = today.getFullYear()
 	const month = today.getMonth() + 1
-	return month >= 2 && month <= 7 ? `${year}-spring` : `${year}-fall`
+	if (month >= 8 || month <= 1) {
+		return `${month <= 1 ? year - 1 : year}-fall`
+	}
+	return `${year}-spring`
 }
 
 const saveSettings = () => {
@@ -344,13 +350,18 @@ const loadSettings = () => {
 			settings.value.startDate = scheduleData.startDate || ''
 			settings.value.totalWeeks = scheduleData.totalWeek || 20
 			settings.value.currentWeek = scheduleData.nowWeek || 1
+			if (scheduleData.semesterMark) {
+				settings.value.semesterMark = scheduleData.semesterMark
+			}
 		} else {
 			const today = new Date()
 			const year = today.getFullYear()
 			const month = today.getMonth() + 1
 			settings.value.startDate = month >= 1 && month <= 7 ? `${year}/03/01` : `${year}/08/25`
 		}
-		settings.value.semesterMark = getCurrentSemesterMark()
+		if (!settings.value.semesterMark) {
+			settings.value.semesterMark = getCurrentSemesterMark()
+		}
 	}
 
 	if (!settings.value.totalWeeks || settings.value.totalWeeks < 1) settings.value.totalWeeks = 20

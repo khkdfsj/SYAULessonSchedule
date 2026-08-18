@@ -2,6 +2,17 @@ import { APP_VERSION } from '@/utils/app.js'
 
 export const DEVLOG_ENTRIES = [{
 	version: APP_VERSION,
+	date: '2026-08-18',
+	title: '校历自动开学日期与公告推送',
+	signature: '东方世家',
+	items: [
+		'开学日期由学校校历自动获取，系统统一管理学期开学时间，无需手动设置。',
+		'在线课表模式下开学日期由系统统一下发，设置页不再显示"开学日期"；缓存模式仍可手动调整。',
+		'新增公告推送管理，支持编辑与历史推送。',
+		'课表体验优化：新学期课表获取、空课提示完善、夜间缓存恢复。'
+	]
+}, {
+	version: '0.3.0',
 	date: '2026-07-19',
 	title: '课表课程群与稳定性升级',
 	signature: '东方世家',
