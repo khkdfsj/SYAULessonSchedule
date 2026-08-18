@@ -133,6 +133,7 @@
 					</view>
 					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
 				</view>
+				<!-- 手动开学日期已取消（日期一律由后端校历服务下发，禁止用户修改）
 				<picker v-if="settings.dataSource === 'cache'" mode="date" :value="settings.startDate" @change="onStartDateChange">
 					<view class="row row-link">
 						<view class="row-main">
@@ -142,6 +143,7 @@
 						<view class="row-value">{{ settings.startDate || '请选择' }}</view>
 					</view>
 				</picker>
+				-->
 			</view>
 
 			<view class="group-card">
@@ -160,6 +162,7 @@
 					</view>
 					<switch :checked="settings.enableAnimation" color="#2563eb" @change="onEnableAnimationChange" />
 				</view>
+				<!-- 开学日期非周一设置已取消（日期一律由后端下发）
 				<view v-if="settings.dataSource === 'cache'" class="row">
 					<view class="row-main">
 						<view class="row-title">开学日期非周一</view>
@@ -167,6 +170,7 @@
 					</view>
 					<switch :checked="settings.startDateNotMonday" color="#2563eb" @change="onStartDateNotMondayChange" />
 				</view>
+				-->
 			</view>
 
 			<view class="group-card">
@@ -354,10 +358,11 @@ const loadSettings = () => {
 				settings.value.semesterMark = scheduleData.semesterMark
 			}
 		} else {
-			const today = new Date()
-			const year = today.getFullYear()
-			const month = today.getMonth() + 1
-			settings.value.startDate = month >= 1 && month <= 7 ? `${year}/03/01` : `${year}/08/25`
+			// 手动默认开学日期已取消：日期一律由后端校历服务下发，禁止手动回退
+			// const today = new Date()
+			// const year = today.getFullYear()
+			// const month = today.getMonth() + 1
+			// settings.value.startDate = month >= 1 && month <= 7 ? `${year}/03/01` : `${year}/08/25`
 		}
 		if (!settings.value.semesterMark) {
 			settings.value.semesterMark = getCurrentSemesterMark()

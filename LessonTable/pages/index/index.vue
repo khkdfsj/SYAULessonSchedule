@@ -2152,10 +2152,26 @@ const loadScheduleBySource = (options = {}) => {
 				...ScheduleData.value,
 				...cachedScheduleData
 			};
-			// 缓存模式下也优先采用服务端确认过的开学日期（settings.semesterMark 存在说明来自服务端下发）
-			if (userSettings && userSettings.semesterMark && userSettings.startDate) {
+			// 日期一律以服务端确认值为准（semesterMark 存在说明来自后端下发）：
+			// 1) 缓存本身带 semesterMark（服务端日期已随在线加载写入缓存）→ 保留缓存日期
+			// 2) 否则用 settings 中服务端确认过的日期
+			// 3) 都没有 → 历史手动修改的日期强制清除（禁止再使用）
+			if (cachedScheduleData.semesterMark) {
+				ScheduleData.value.startDate = cachedScheduleData.startDate || '';
+				ScheduleData.value.semesterMark = cachedScheduleData.semesterMark;
+			} else if (userSettings && userSettings.semesterMark && userSettings.startDate) {
 				ScheduleData.value.startDate = userSettings.startDate;
 				ScheduleData.value.semesterMark = userSettings.semesterMark;
+			} else {
+				ScheduleData.value.startDate = '';
+				ScheduleData.value.semesterMark = '';
+				if (userSettings && userSettings.startDate) {
+					uni.setStorageSync('scheduleSettings', {
+						...userSettings,
+						startDate: '',
+						semesterMark: ''
+					});
+				}
 			}
 			const cachedOnline = extractOnlineCoursesFromCache(cachedScheduleData)
 			mergeCourseData(cachedOnline, getLocalCoursesByUser(ScheduleData.value.UserID))
@@ -2264,10 +2280,10 @@ const loadSettings = () => {
 				['一', '二', '三', '四', '五'];
 		}
 		
-		// 加载开学日期设置
-		if (settings.startDate) {
-			ScheduleData.value.startDate = settings.startDate;
-		}
+		// 加载开学日期设置（已取消：日期一律以后端校历服务下发的 ScheduleData.startDate 为准）
+		// if (settings.startDate) {
+		// 	ScheduleData.value.startDate = settings.startDate;
+		// }
 		
 		// 加载总周数设置
 		if (settings.totalWeeks) {
@@ -2317,10 +2333,10 @@ const handleSettingsUpdated = (newSettings) => {
 				['一', '二', '三', '四', '五'];
 		}
 		
-		// 更新开学日期
-		if (newSettings.startDate) {
-			ScheduleData.value.startDate = newSettings.startDate;
-		}
+		// 更新开学日期（已取消：日期由后端统一管理，禁止用户修改）
+		// if (newSettings.startDate) {
+		// 	ScheduleData.value.startDate = newSettings.startDate;
+		// }
 		
 		// 更新总周数
 		if (newSettings.totalWeeks) {
@@ -2348,6 +2364,14 @@ const handleDataSourceUpdated = (dataSource) => {
 				...ScheduleData.value,
 				...cachedData
 			};
+			// 切换到缓存数据时同样强制日期走服务端确认值（semesterMark 不存在的历史手动日期清除）
+			if (cachedData.semesterMark) {
+				ScheduleData.value.startDate = cachedData.startDate || '';
+				ScheduleData.value.semesterMark = cachedData.semesterMark;
+			} else {
+				ScheduleData.value.startDate = '';
+				ScheduleData.value.semesterMark = '';
+			}
 			const cachedOnline = extractOnlineCoursesFromCache(cachedData)
 			mergeCourseData(cachedOnline, getLocalCoursesByUser(ScheduleData.value.UserID))
 			syncWeekToToday(true);
