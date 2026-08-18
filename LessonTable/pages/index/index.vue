@@ -1328,6 +1328,15 @@ const swiperSwitchWeek = function (e) {
 	const index = Number(e.detail.current)
 	const panel = displayWeekPanels.value[index]
 	if (!panel) return
+	// 边界处理：第1周/最后一周时，上/下层面板被 clamp 成重复的当前周，
+	// 此时不允许切到重复面板（回弹到当前周），避免出现"两个相同周"并可继续乱滑
+	const currentWeek = clampWeekNumber(ScheduleData.value.TemporaryWeek || 1)
+	if (panel.week === currentWeek && index !== 1) {
+		nextTick(() => {
+			swiperCurrent.value = 1
+		})
+		return
+	}
 	switchWeekFn(panel.week)
 	if (index !== 1) {
 		nextTick(() => {
@@ -2149,6 +2158,11 @@ const loadScheduleBySource = (options = {}) => {
 				...ScheduleData.value,
 				...cachedScheduleData
 			};
+			// 缓存模式下也优先采用服务端确认过的开学日期（settings.semesterMark 存在说明来自服务端下发）
+			if (userSettings && userSettings.semesterMark && userSettings.startDate) {
+				ScheduleData.value.startDate = userSettings.startDate;
+				ScheduleData.value.semesterMark = userSettings.semesterMark;
+			}
 			const cachedOnline = extractOnlineCoursesFromCache(cachedScheduleData)
 			mergeCourseData(cachedOnline, getLocalCoursesByUser(ScheduleData.value.UserID))
 			syncWeekToToday(true);

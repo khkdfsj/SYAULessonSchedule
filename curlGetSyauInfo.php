@@ -12,7 +12,7 @@ define('DB_PASS', 'syau8848@');
 define('DB_NAME', 'LessonTable');
 
 // 应用版本号（版本管理：前端每次进入校验 appVersion，非最新强制更新）
-define('APP_VERSION', '0.4.1');
+define('APP_VERSION', '0.4.2');
 
 // 学校课表接口夜间不可用：22:00-06:00 强制读取数据库缓存，不访问上游。
 define('QUIET_START', '22:00');
