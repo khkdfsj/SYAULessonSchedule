@@ -55,12 +55,17 @@ npm run dev        # vite dev server，接口经 /h5api 代理到线上 debug.91
 - 下发链路：`curlGetSyauInfo.php` 读取校历服务 → 响应 `semesterStartDate`/`semesterMark` → 前端强制采用
 - 在线数据模式下设置页隐藏"开学日期"手动设置（缓存模式保留）
 
-## GitHub 分支/tag 流程
+## GitHub 分支/tag 流程（协作者规范）
 
-- `main` = 主线包（= 服务器正式版本）；`dfsj` = 个人开发分支
-- 流程：`dfsj`（或 `dfsj/<功能>`）开发 → 测试 → 合并 `main` → 部署 → 打 tag `vX.Y.Z`
-  `git checkout main && git merge --ff-only dfsj && git tag vX.Y.Z && git push origin main vX.Y.Z dfsj`
-- 回滚：`git checkout vX.Y.Z`
+- `main` = 主线包（= 服务器正式版本），所有改动最终合并到 `main`
+- 每个协作者使用**自己的个人分支**（以自己的用户名命名，如 `bailun`、`wttmf`），
+  不共用、不使用他人的分支
+- 发布流程（在自己分支上）：开发 → 测试 → 合并 `main` → 部署 → 打 tag `vX.Y.Z`
+  ```
+  git checkout main && git merge --ff-only <自己的分支名> && git tag vX.Y.Z && git push origin main vX.Y.Z <自己的分支名>
+  ```
+- 回滚：`git checkout vX.Y.Z`（tag 即版本回滚点）
+- 小更新（修订位 0.4.x）只写 commit 日志；大版本升级（0.5.0、1.0.0）才集中撰写开发日志
 
 ## 服务器连接
 
