@@ -188,6 +188,7 @@ import {
 import {
 	GetCourseInfo
 } from "@/api/apis.js"
+import { APP_VERSION } from "@/utils/app.js"
 import {
 	requestCourseGroup
 } from "@/api/courseGroups.js"
@@ -435,6 +436,19 @@ const normalizeCourseItem = (item, source = 'online') => {
 const normalizeCourseList = (list, source = 'online') => {
 	if (!Array.isArray(list)) return []
 	return list.map(item => normalizeCourseItem(item, source))
+}
+
+// 版本号比较：a>b 返回1，a<b 返回-1，相等返回0（主.次.修订 三位比较）
+const compareVersions = (a, b) => {
+	const pa = String(a || '').split('.').map(n => parseInt(n, 10) || 0)
+	const pb = String(b || '').split('.').map(n => parseInt(n, 10) || 0)
+	const len = Math.max(pa.length, pb.length)
+	for (let i = 0; i < len; i++) {
+		const x = pa[i] || 0
+		const y = pb[i] || 0
+		if (x !== y) return x > y ? 1 : -1
+	}
+	return 0
 }
 
 const parseCourseListFromResponse = (payload) => {
@@ -1842,6 +1856,25 @@ const GetScheduleData = async () => {
 		const payload = await GetCourseInfo({
 			UserID: ScheduleData.value.UserID
 		});
+
+		// 版本管理：每次进入校验服务端版本，非最新则强制更新（带缓存破坏参数刷新）
+		const serverVersion = payload?.data?.appVersion || ''
+		if (serverVersion && compareVersions(serverVersion, APP_VERSION) > 0) {
+			console.log(`发现新版本 v${serverVersion}（当前 v${APP_VERSION}），强制更新`);
+			uni.showModal({
+				title: '发现新版本',
+				content: `当前版本 v${APP_VERSION}，最新版本 v${serverVersion}，正在为您更新…`,
+				showCancel: false,
+				confirmText: '立即更新',
+				success: () => {
+					if (typeof window !== 'undefined') {
+						const base = window.location.pathname
+						window.location.href = base + '?v=' + serverVersion
+					}
+				}
+			});
+			return
+		}
 
 		const onlineCourseList = normalizeCourseList(parseCourseListFromResponse(payload), 'online')
 		// 方案B：后端统一下发的开学日期与学期标记

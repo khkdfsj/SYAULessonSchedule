@@ -11,6 +11,9 @@ define('DB_USER', 'LessonTable');
 define('DB_PASS', 'syau8848@');
 define('DB_NAME', 'LessonTable');
 
+// 应用版本号（版本管理：前端每次进入校验 appVersion，非最新强制更新）
+define('APP_VERSION', '0.4.1');
+
 // 学校课表接口夜间不可用：22:00-06:00 强制读取数据库缓存，不访问上游。
 define('QUIET_START', '22:00');
 define('QUIET_END', '06:00');
@@ -171,7 +174,8 @@ function sendCourseResponse($userID, $courseInfo, $source)
     $data = [
         'UserID' => $userID,
         'courseInfo' => $courses,
-        'source' => $source
+        'source' => $source,
+        'appVersion' => APP_VERSION
     ];
 
     // 方案B：从同机校历服务获取本学期开学日期并下发（前端服务端优先，强制采用）
