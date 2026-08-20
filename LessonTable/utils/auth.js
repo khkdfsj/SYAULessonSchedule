@@ -308,6 +308,34 @@ export const getIdentitySummary = () => {
 	}
 }
 
+export const isEnterpriseAuthOfflineTime = () => {
+	const beijingNow = new Date(Date.now() + 8 * 60 * 60 * 1000)
+	const hour = beijingNow.getUTCHours()
+	return hour >= 22 || hour < 6
+}
+
+export const buildEnterpriseAuthEntryUrl = () => {
+	if (typeof window === 'undefined' || !window.location?.origin) {
+		return 'https://syauinfo.syau.edu.cn/LessonSchedule/index.php'
+	}
+	const appRootUrl = new URL('/LessonSchedule/', window.location.origin).href
+	return `https://syauinfo.syau.edu.cn/LessonSchedule/index.php?kind=${encodeURIComponent(appRootUrl)}`
+}
+
+export const startReauthentication = () => {
+	const identity = getIdentitySummary()
+	clearAuthSession()
+	if (identity.authSource === 'manual') {
+		uni.reLaunch({ url: '/pages/login/login' })
+		return
+	}
+	if (typeof window !== 'undefined') {
+		window.location.href = buildEnterpriseAuthEntryUrl()
+		return
+	}
+	uni.reLaunch({ url: '/pages/index/index' })
+}
+
 export const markComWxAutoAuthAttempt = () => {
 	writePersistentValue(COMWX_REDIRECT_KEY, {
 		at: Date.now()

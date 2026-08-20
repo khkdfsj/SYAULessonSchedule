@@ -1,52 +1,35 @@
 <template>
 	<view class="page">
 		<view class="nav">
-			<view class="nav-btn" @click="goBack">
-				<uni-icons type="left" size="22" color="#111827"></uni-icons>
-			</view>
+			<view class="nav-btn" @click="goBack"><uni-icons type="left" size="22" color="#111827"></uni-icons></view>
 			<view class="nav-title">{{ pageTitle }}</view>
 			<view class="nav-placeholder"></view>
 		</view>
 
 		<scroll-view scroll-y class="page-scroll">
-			<view class="hero">
-				<view class="hero-title">{{ pageTitle }}</view>
-				<view class="hero-subtitle">{{ pageSubtitle }}</view>
-			</view>
-
-			<view class="auth-banner" :class="{ warn: !sessionInfo.authenticated }">
-				{{ authText }}
-			</view>
-
-			<view class="card">
-				<view class="card-title">模板</view>
-				<view class="template-content">{{ templateText }}</view>
-				<view class="template-btn" @click="applyTemplate">套用模板</view>
-			</view>
-
-			<view class="card">
-				<view class="field-label">标题</view>
-				<input v-model="form.title" class="field-input" :placeholder="titlePlaceholder" maxlength="120" />
-				<view class="field-label area-label">内容</view>
-				<textarea
-					v-model="form.content"
-					class="field-textarea"
-					:placeholder="contentPlaceholder"
-					maxlength="4000"
-				/>
-			</view>
-
-			<view class="tips-card">
-				<view class="tips-title">提交说明</view>
-				<text>1. 问题反馈仅你本人和管理员可见。</text>
-				<text>2. 建议会进入公开广场，作者默认脱敏展示。</text>
-				<text>3. 签名过期后只能浏览公开内容，提交需重新认证。</text>
-			</view>
-
-			<view class="submit-btn" :class="{ disabled: submitting || !sessionInfo.authenticated }" @click="submitForm">
-				{{ submitting ? '提交中...' : '提交' }}
+			<view class="visibility-note">{{ pageSubtitle }}</view>
+			<view class="form-card">
+				<view class="field-block">
+					<view class="field-head"><view class="field-label">{{ titleLabel }}</view><view class="field-count">{{ form.title.length }} / 120</view></view>
+					<input v-model="form.title" class="field-input" :placeholder="titlePlaceholder" maxlength="120" />
+				</view>
+				<view class="field-divider"></view>
+				<view class="field-block content-field">
+					<view class="field-head">
+						<view class="field-label">{{ contentLabel }}</view>
+						<view class="template-link" @click="applyTemplate">插入填写模板</view>
+					</view>
+					<textarea v-model="form.content" class="field-textarea" :placeholder="contentPlaceholder" maxlength="4000" />
+					<view class="field-count textarea-count">{{ form.content.length }} / 4000</view>
+				</view>
 			</view>
 		</scroll-view>
+
+		<view class="bottom-action-wrap">
+			<view class="bottom-action" :class="{ checking: authState === 'checking', warn: authState === 'expired', retry: authState === 'unavailable', disabled: submitting }" @click="handleSubmitAction">
+				{{ submitButtonText }}
+			</view>
+		</view>
 	</view>
 </template>
 
@@ -54,278 +37,122 @@
 import { computed, ref } from 'vue'
 import { createFeedbackThread, getFeedbackSession } from '@/api/feedback.js'
 import { getErrorMessage, isAuthRequiredError } from '@/utils/http.js'
+import { isEnterpriseAuthOfflineTime, startReauthentication } from '@/utils/auth.js'
 
 const type = ref('issue')
 const submitting = ref(false)
-const sessionInfo = ref({
-	authenticated: false,
-	is_admin: false
-})
-const form = ref({
-	title: '',
-	content: ''
-})
+const authState = ref('checking')
+const form = ref({ title: '', content: '' })
 
 const templateMap = {
-	issue: {
-		title: '课表问题反馈',
-		content: '【问题现象】\n请描述你看到的异常现象。\n\n【复现步骤】\n1. 打开页面\n2. 执行操作\n3. 出现问题\n\n【设备与环境】\n机型 / 微信版本 / 系统版本\n\n【补充说明】\n截图位置、时间或其他线索。',
-		templateKey: 'issue_default'
-	},
-	suggestion: {
-		title: '课表功能建议',
-		content: '【当前痛点】\n当前使用过程中哪里不够顺手？\n\n【建议方案】\n你希望新增或调整什么能力？\n\n【预期效果】\n这个建议落地后，能解决什么问题？',
-		templateKey: 'suggestion_default'
-	}
+	issue: '【问题现象】\n请描述你看到的异常现象。\n\n【操作过程】\n请写明出现问题前进行的操作。\n\n【设备信息】\n请填写机型、系统版本及企业微信版本。\n\n【补充说明】\n请补充出现时间或其他线索。',
+	suggestion: '【目前的问题】\n请说明哪里不够方便。\n\n【希望如何改进】\n请描述你期待的功能或调整。\n\n【预期效果】\n请说明改进后能够解决什么问题。'
 }
 
 const pageTitle = computed(() => type.value === 'issue' ? '提交问题' : '提交建议')
-const pageSubtitle = computed(() => type.value === 'issue'
-	? '问题单默认私密，仅你和管理员可见。'
-	: '建议会进入公开广场，其他同学可以点赞评论。')
-const titlePlaceholder = computed(() => type.value === 'issue' ? '例如：周数切换后课表空白' : '例如：希望增加课程提醒')
-const contentPlaceholder = computed(() => type.value === 'issue' ? '请尽量写明现象、复现步骤和设备信息。' : '请尽量写明痛点、方案和预期效果。')
-const templateText = computed(() => templateMap[type.value].content)
-const authText = computed(() => sessionInfo.value.authenticated
-	? '当前签名有效，可以直接提交。'
-	: '当前签名无效，白天重新进入课表后再提交。')
+const pageSubtitle = computed(() => type.value === 'issue' ? '问题内容仅你本人和管理员可见' : '建议将公开展示，其他同学可以点赞和回复')
+const titleLabel = computed(() => type.value === 'issue' ? '问题标题' : '建议标题')
+const contentLabel = computed(() => type.value === 'issue' ? '问题描述' : '建议内容')
+const titlePlaceholder = computed(() => type.value === 'issue' ? '简要描述遇到的问题' : '用一句话概括你的建议')
+const contentPlaceholder = computed(() => type.value === 'issue' ? '请说明异常现象、操作过程和设备信息' : '请说明目前的问题、希望如何改进及预期效果')
+const submitButtonText = computed(() => {
+	if (submitting.value) return '正在提交…'
+	if (authState.value === 'checking') return '正在验证身份…'
+	if (authState.value === 'expired') return '认证已失效，点击重新认证'
+	if (authState.value === 'unavailable') return '暂时无法验证，点击重试'
+	return type.value === 'issue' ? '提交问题' : '提交建议'
+})
 
-const goBack = () => {
-	uni.navigateBack()
-}
-
+const goBack = () => uni.navigateBack()
 const applyTemplate = () => {
-	form.value.title = templateMap[type.value].title
-	form.value.content = templateMap[type.value].content
-}
-
-const loadSession = async () => {
-	try {
-		const response = await getFeedbackSession()
-		sessionInfo.value = {
-			...sessionInfo.value,
-			...response.data
-		}
-	} catch (error) {
-		sessionInfo.value.authenticated = false
-	}
-}
-
-const submitForm = async () => {
-	if (submitting.value || !sessionInfo.value.authenticated) {
-		if (!sessionInfo.value.authenticated) {
-			uni.showModal({
-				title: '无法提交',
-				content: '当前签名已失效，请在白天重新从课表入口进入后再提交。',
-				showCancel: false
-			})
-		}
-		return
-	}
-
-	if (!form.value.title.trim() || !form.value.content.trim()) {
-		uni.showToast({
-			title: '请完整填写标题和内容',
-			icon: 'none'
+	if (form.value.content.trim()) {
+		uni.showModal({
+			title: '插入填写模板',
+			content: '插入模板会替换当前已填写的内容，是否继续？',
+			confirmText: '继续',
+			cancelText: '取消',
+			success: (res) => { if (res.confirm) form.value.content = templateMap[type.value] }
 		})
 		return
 	}
-
+	form.value.content = templateMap[type.value]
+}
+const showOfflineTimeNotice = () => uni.showModal({
+	title: '当前无法重新认证',
+	content: '22:00至次日06:00认证服务暂停，请在白天重新认证。',
+	showCancel: false,
+	confirmText: '知道了'
+})
+const loadSession = async () => {
+	authState.value = 'checking'
+	try {
+		const response = await getFeedbackSession()
+		authState.value = response?.data?.authenticated ? 'authenticated' : 'expired'
+	} catch (error) {
+		authState.value = isAuthRequiredError(error) ? 'expired' : 'unavailable'
+	}
+}
+const handleSubmitAction = () => {
+	if (submitting.value || authState.value === 'checking') return
+	if (authState.value === 'unavailable') return loadSession()
+	if (authState.value === 'expired') {
+		if (isEnterpriseAuthOfflineTime()) return showOfflineTimeNotice()
+		startReauthentication()
+		return
+	}
+	submitForm()
+}
+const submitForm = async () => {
+	if (!form.value.title.trim() || !form.value.content.trim()) {
+		uni.showToast({ title: '请完整填写标题和内容', icon: 'none' })
+		return
+	}
 	submitting.value = true
 	try {
 		const response = await createFeedbackThread({
 			type: type.value,
 			title: form.value.title.trim(),
 			content: form.value.content.trim(),
-			template_key: templateMap[type.value].templateKey
+			template_key: `${type.value}_default`
 		})
-		uni.showToast({
-			title: '提交成功',
-			icon: 'success'
-		})
-		setTimeout(() => {
-			uni.redirectTo({
-				url: `/pages/feedback-detail/index?threadId=${response.data.thread_id}`
-			})
-		}, 180)
+		uni.showToast({ title: '提交成功', icon: 'success' })
+		setTimeout(() => uni.redirectTo({ url: `/pages/feedback-detail/index?threadId=${response.data.thread_id}` }), 180)
 	} catch (error) {
-		const message = isAuthRequiredError(error) ? '签名已失效，请白天重新认证后再提交。' : getErrorMessage(error, '提交失败')
-		uni.showToast({
-			title: message,
-			icon: 'none'
-		})
+		if (isAuthRequiredError(error)) authState.value = 'expired'
+		uni.showToast({ title: isAuthRequiredError(error) ? '认证已失效，请重新认证。' : getErrorMessage(error, '提交失败'), icon: 'none' })
 	} finally {
 		submitting.value = false
 	}
 }
 
 onLoad((query) => {
-	if (query?.type === 'suggestion') {
-		type.value = 'suggestion'
-	}
+	if (query?.type === 'suggestion') type.value = 'suggestion'
 })
-
-onShow(() => {
-	loadSession()
-})
+onShow(loadSession)
 </script>
 
 <style lang="scss" scoped>
-.page {
-	min-height: 100vh;
-	background: linear-gradient(180deg, #f6f8fc 0%, #eef3f9 100%);
-}
-
-.nav {
-	height: calc(env(safe-area-inset-top) + 92rpx);
-	padding: env(safe-area-inset-top) 28rpx 0;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-}
-
-.nav-btn,
-.nav-placeholder {
-	width: 64rpx;
-	height: 64rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-}
-
-.nav-title {
-	font-size: 34rpx;
-	font-weight: 700;
-	color: #111827;
-}
-
-.page-scroll {
-	height: calc(100vh - env(safe-area-inset-top) - 92rpx);
-	padding: 0 24rpx calc(env(safe-area-inset-bottom) + 36rpx);
-	box-sizing: border-box;
-}
-
-.hero,
-.card,
-.tips-card,
-.auth-banner {
-	background: rgba(255, 255, 255, 0.92);
-	border-radius: 28rpx;
-	box-shadow: 0 14rpx 34rpx rgba(15, 23, 42, 0.06);
-}
-
-.hero {
-	padding: 28rpx;
-}
-
-.hero-title {
-	font-size: 38rpx;
-	font-weight: 700;
-	color: #0f172a;
-}
-
-.hero-subtitle {
-	margin-top: 12rpx;
-	font-size: 24rpx;
-	line-height: 1.6;
-	color: #64748b;
-}
-
-.auth-banner {
-	margin-top: 18rpx;
-	padding: 22rpx 24rpx;
-	font-size: 24rpx;
-	color: #166534;
-	background: rgba(240, 253, 244, 0.95);
-}
-
-.auth-banner.warn {
-	color: #c2410c;
-	background: rgba(255, 247, 237, 0.96);
-}
-
-.card {
-	margin-top: 18rpx;
-	padding: 28rpx;
-}
-
-.card-title,
-.field-label,
-.tips-title {
-	font-size: 28rpx;
-	font-weight: 700;
-	color: #0f172a;
-}
-
-.template-content {
-	margin-top: 18rpx;
-	font-size: 24rpx;
-	line-height: 1.8;
-	color: #475569;
-	white-space: pre-wrap;
-}
-
-.template-btn {
-	margin-top: 22rpx;
-	height: 76rpx;
-	border-radius: 20rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	background: rgba(37, 99, 235, 0.1);
-	color: #1d4ed8;
-	font-size: 26rpx;
-	font-weight: 700;
-}
-
-.field-input,
-.field-textarea {
-	width: 100%;
-	margin-top: 18rpx;
-	box-sizing: border-box;
-	border-radius: 22rpx;
-	background: #f8fafc;
-	padding: 22rpx 24rpx;
-	font-size: 28rpx;
-	color: #0f172a;
-}
-
-.area-label {
-	margin-top: 24rpx;
-}
-
-.field-textarea {
-	min-height: 360rpx;
-	line-height: 1.7;
-}
-
-.tips-card {
-	margin-top: 18rpx;
-	padding: 28rpx;
-	display: flex;
-	flex-direction: column;
-	gap: 12rpx;
-	font-size: 24rpx;
-	line-height: 1.7;
-	color: #64748b;
-}
-
-.submit-btn {
-	margin-top: 24rpx;
-	height: 88rpx;
-	border-radius: 24rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%);
-	color: #fff;
-	font-size: 30rpx;
-	font-weight: 700;
-	box-shadow: 0 18rpx 40rpx rgba(37, 99, 235, 0.24);
-}
-
-.submit-btn.disabled {
-	background: #cbd5e1;
-	box-shadow: none;
-}
+.page { min-height: 100vh; background: linear-gradient(180deg, #f4f7fb 0%, #eef3f9 100%); }
+.nav { height: calc(env(safe-area-inset-top) + 92rpx); padding: env(safe-area-inset-top) 28rpx 0; display: flex; align-items: center; justify-content: space-between; box-sizing: border-box; }
+.nav-btn, .nav-placeholder { width: 64rpx; height: 64rpx; display: flex; align-items: center; justify-content: center; }
+.nav-title { font-size: 34rpx; font-weight: 700; color: #111827; }
+.page-scroll { height: calc(100vh - env(safe-area-inset-top) - 92rpx); padding: 0 24rpx calc(env(safe-area-inset-bottom) + 150rpx); box-sizing: border-box; }
+.visibility-note { padding: 8rpx 6rpx 20rpx; font-size: 23rpx; line-height: 1.6; color: #64748b; }
+.form-card { padding: 8rpx 28rpx 24rpx; border-radius: 26rpx; background: rgba(255, 255, 255, 0.94); box-shadow: 0 12rpx 30rpx rgba(15, 23, 42, 0.055); }
+.field-block { padding: 24rpx 0 22rpx; }
+.field-head { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; }
+.field-label { font-size: 28rpx; font-weight: 700; color: #0f172a; }
+.field-count { font-size: 20rpx; color: #94a3b8; }
+.field-input, .field-textarea { width: 100%; margin-top: 16rpx; padding: 20rpx 22rpx; border-radius: 18rpx; background: #f8fafc; box-sizing: border-box; font-size: 27rpx; color: #0f172a; }
+.field-input { height: 82rpx; }
+.field-divider { height: 1rpx; background: rgba(226, 232, 240, 0.9); }
+.content-field { padding-bottom: 0; }
+.template-link { font-size: 23rpx; font-weight: 600; color: #2563eb; }
+.field-textarea { min-height: 440rpx; line-height: 1.7; }
+.textarea-count { margin-top: 10rpx; text-align: right; }
+.bottom-action-wrap { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; padding: 18rpx 24rpx calc(env(safe-area-inset-bottom) + 18rpx); background: linear-gradient(180deg, rgba(238, 243, 249, 0), rgba(238, 243, 249, 0.96) 28%); box-sizing: border-box; }
+.bottom-action { height: 88rpx; border-radius: 24rpx; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%); color: #fff; font-size: 29rpx; font-weight: 700; box-shadow: 0 16rpx 36rpx rgba(37, 99, 235, 0.24); }
+.bottom-action.checking, .bottom-action.disabled { background: #94a3b8; box-shadow: none; }
+.bottom-action.warn { background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); box-shadow: 0 16rpx 34rpx rgba(234, 88, 12, 0.2); }
+.bottom-action.retry { background: #475569; box-shadow: 0 14rpx 30rpx rgba(71, 85, 105, 0.2); }
 </style>
