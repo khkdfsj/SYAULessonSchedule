@@ -206,6 +206,11 @@ import {
 	setCurrentUserId,
 	shouldAttemptComWxAutoAuth
 } from "@/utils/auth.js"
+import {
+	DATA_SOURCE_CACHE,
+	getPreferredDataSource,
+	normalizeDataSourcePreference
+} from "@/utils/dataSource.js"
 import UniPopup from "@/uni_modules/uni-popup/components/uni-popup/uni-popup.vue"
 import UniPopupDialog from "@/uni_modules/uni-popup/components/uni-popup-dialog/uni-popup-dialog.vue"
 import UniIcons from "@/uni_modules/uni-icons/components/uni-icons/uni-icons.vue"
@@ -1888,7 +1893,7 @@ const GetScheduleData = async () => {
 			console.log('获取到的在线课表数据:', onlineCourseList);
 			
 			// 从本地存储加载用户设置
-			const userSettings = uni.getStorageSync('scheduleSettings');
+			const userSettings = normalizeDataSourcePreference(uni.getStorageSync('scheduleSettings') || {});
 			
 			// 分析课表数据获取最大周数
 			const weekAnalysis = analyzeCourseWeeks(onlineCourseList);
@@ -1911,7 +1916,8 @@ const GetScheduleData = async () => {
 					semesterMark: serverMark,
 					totalWeeks: maxWeek,
 					currentWeek: ScheduleData.value.nowWeek,
-					dataSource: 'online',
+					dataSource: getPreferredDataSource(userSettings),
+					dataSourcePreference: getPreferredDataSource(userSettings),
 					isFirstUse: false
 				});
 				persistCurrentWeek(ScheduleData.value.nowWeek);
@@ -1971,6 +1977,7 @@ const GetScheduleData = async () => {
 						currentWeek: ScheduleData.value.nowWeek,
 						showWeekend: ScheduleData.value.weekDayCount === 7,
 						dataSource: 'online', // 数据来源：在线
+						dataSourcePreference: 'online',
 						enableAnimation: userSettings?.enableAnimation !== false,
 						isFirstUse: true // 标记首次使用
 					};
@@ -2005,6 +2012,7 @@ const GetScheduleData = async () => {
 						currentWeek: ScheduleData.value.nowWeek,
 						showWeekend: ScheduleData.value.weekDayCount === 7,
 						dataSource: 'online',
+						dataSourcePreference: 'online',
 						enableAnimation: userSettings?.enableAnimation !== false,
 						isFirstUse: true
 					};
@@ -2147,6 +2155,16 @@ const validateServerSession = async () => {
 	return null
 }
 
+const ensureDataSourcePreference = () => {
+	const savedSettings = uni.getStorageSync('scheduleSettings') || {}
+	const normalizedSettings = normalizeDataSourcePreference(savedSettings)
+	if (savedSettings.dataSource !== normalizedSettings.dataSource ||
+		savedSettings.dataSourcePreference !== normalizedSettings.dataSourcePreference) {
+		uni.setStorageSync('scheduleSettings', normalizedSettings)
+	}
+	return normalizedSettings
+}
+
 const loadScheduleBySource = (options = {}) => {
 	const cacheOnly = options.cacheOnly === true
 	ensureCustomCoursesForSemester(ScheduleData.value.UserID)
@@ -2158,11 +2176,11 @@ const loadScheduleBySource = (options = {}) => {
 	loadSettings();
 
 	const cachedScheduleData = uni.getStorageSync('ScheduleData');
-	const userSettings = uni.getStorageSync('scheduleSettings');
+	const userSettings = ensureDataSourcePreference();
 
 	if (cachedScheduleData && typeof cachedScheduleData === 'object' && Object.keys(cachedScheduleData).length > 0 &&
 		cachedScheduleData.UserID == ScheduleData.value.UserID) {
-		if (cacheOnly || (userSettings && userSettings.dataSource === 'cache')) {
+		if (cacheOnly || getPreferredDataSource(userSettings) === DATA_SOURCE_CACHE) {
 			ScheduleData.value = {
 				...ScheduleData.value,
 				...cachedScheduleData
@@ -2236,15 +2254,7 @@ const refreshSemesterDateFromServer = async () => {
 const bootstrapIndexPage = async (routeParams = {}) => {
 	updateLayoutMetrics();
 	closeBottomSheet();
-
-	// 夜间（22:00–次日06:00）自动切换到缓存数据模式：内网实时接口关闭，实时取不到；
-	// 界面同步显示"缓存数据"，日期由缓存路径异步从公网接口拉取
-	if (isEnterpriseServiceOfflineTime()) {
-		const curSettings = uni.getStorageSync('scheduleSettings') || {}
-		if (curSettings.dataSource !== 'cache') {
-			uni.setStorageSync('scheduleSettings', { ...curSettings, dataSource: 'cache' })
-		}
-	}
+	ensureDataSourcePreference()
 
 	const previousSession = getAuthSession()
 	const routeSession = saveAuthSessionFromRoute(routeParams)
@@ -2301,7 +2311,7 @@ const bootstrapIndexPage = async (routeParams = {}) => {
 	ScheduleData.value.UserID = resolvedUserId
 	setCurrentUserId(resolvedUserId)
 	loadScheduleBySource({
-		cacheOnly: cacheEntry && !sessionInfo?.authenticated
+		cacheOnly: isEnterpriseServiceOfflineTime() || (cacheEntry && !sessionInfo?.authenticated)
 	})
 }
 
@@ -2420,6 +2430,7 @@ const handleSettingsUpdated = (newSettings) => {
 const handleDataSourceUpdated = (dataSource) => {
 	console.log('数据源更新:', dataSource);
 	if (dataSource === 'cache') {
+		lastAutomaticNightState = null
 		// 切换到缓存数据
 		const cachedData = uni.getStorageSync('ScheduleData');
 		if (cachedData && cachedData.UserID === ScheduleData.value.UserID) {
@@ -2442,6 +2453,7 @@ const handleDataSourceUpdated = (dataSource) => {
 			refreshSemesterDateFromServer();
 		}
 	} else if (dataSource === 'online') {
+		lastAutomaticNightState = isEnterpriseServiceOfflineTime()
 		// 切换到在线数据，重新获取
 		GetScheduleData();
 	}
@@ -2468,6 +2480,37 @@ const handleWindowResize = () => {
 	}
 }
 
+let automaticDataSourceTimer = null
+let lastAutomaticNightState = null
+
+const syncAutomaticDataSource = () => {
+	const userSettings = ensureDataSourcePreference()
+	if (getPreferredDataSource(userSettings) === DATA_SOURCE_CACHE) {
+		lastAutomaticNightState = null
+		return
+	}
+
+	const currentNightState = isEnterpriseServiceOfflineTime()
+	if (lastAutomaticNightState === null) {
+		lastAutomaticNightState = currentNightState
+		return
+	}
+	if (currentNightState === lastAutomaticNightState || !ScheduleData.value.UserID) return
+
+	lastAutomaticNightState = currentNightState
+	if (currentNightState) {
+		loadScheduleBySource({ cacheOnly: true })
+		return
+	}
+	GetScheduleData()
+}
+
+const handleVisibilityChange = () => {
+	if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+		syncAutomaticDataSource()
+	}
+}
+
 // 监听设置更新事件
 onMounted(() => {
 	updateLayoutMetrics();
@@ -2475,9 +2518,14 @@ onMounted(() => {
 	uni.$on('dataSourceUpdated', handleDataSourceUpdated);
 	uni.$on('customCoursesChanged', handleCustomCoursesChanged);
 	uni.$on('updateCourseData', handleUpdateCourseData);
+	lastAutomaticNightState = isEnterpriseServiceOfflineTime()
+	automaticDataSourceTimer = setInterval(syncAutomaticDataSource, 30000)
 
 	if (typeof window !== 'undefined' && window.addEventListener) {
 		window.addEventListener('resize', handleWindowResize);
+	}
+	if (typeof document !== 'undefined' && document.addEventListener) {
+		document.addEventListener('visibilitychange', handleVisibilityChange)
 	}
 });
 
@@ -2488,9 +2536,16 @@ onUnmounted(() => {
 	uni.$off('dataSourceUpdated', handleDataSourceUpdated);
 	uni.$off('customCoursesChanged', handleCustomCoursesChanged);
 	uni.$off('updateCourseData', handleUpdateCourseData);
+	if (automaticDataSourceTimer) {
+		clearInterval(automaticDataSourceTimer)
+		automaticDataSourceTimer = null
+	}
 
 	if (typeof window !== 'undefined' && window.removeEventListener) {
 		window.removeEventListener('resize', handleWindowResize);
+	}
+	if (typeof document !== 'undefined' && document.removeEventListener) {
+		document.removeEventListener('visibilitychange', handleVisibilityChange)
 	}
 });
 </script>

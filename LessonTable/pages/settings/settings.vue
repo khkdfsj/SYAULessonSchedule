@@ -25,6 +25,13 @@
 					</view>
 					<view class="row-value">{{ authenticationMethodLabel }}</view>
 				</view>
+				<view class="row">
+					<view class="row-main">
+						<view class="row-title">数据来源</view>
+						<view v-if="nightForcedCache" class="row-subtitle">夜间自动使用本机缓存，白天将恢复在线数据。</view>
+					</view>
+					<view class="row-value">{{ effectiveDataSourceLabel }}</view>
+				</view>
 				<view class="row" v-if="sessionInfo.is_admin">
 					<view class="row-main">
 						<view class="row-title">管理员权限</view>
@@ -101,22 +108,22 @@
 					<view class="segment">
 						<view
 							class="segment-item"
-							:class="{ active: settings.dataSource === 'online' }"
+							:class="{ active: effectiveDataSource === 'online' }"
 							@click="switchDataSource('online')"
 						>
 							在线数据
 						</view>
 						<view
 							class="segment-item"
-							:class="{ active: settings.dataSource === 'cache' }"
+							:class="{ active: effectiveDataSource === 'cache' }"
 							@click="switchDataSource('cache')"
 						>
-							{{ isNightTime() ? '缓存数据（夜间强制使用）' : '缓存数据' }}
+							{{ nightForcedCache ? '缓存数据（夜间强制使用）' : '缓存数据' }}
 						</view>
 					</view>
-					<view v-if="isNightTime()" class="night-note">22:00至次日06:00实时课表服务暂停，当前仅可使用本机缓存。</view>
+					<view v-if="nightForcedCache" class="night-note">22:00至次日06:00自动使用本机缓存，白天将自动恢复在线数据。</view>
 				</view>
-				<view v-if="settings.dataSource === 'cache'" class="row row-link" :class="{ disabled: isNightTime() }" @click="onUpdateCacheClick">
+				<view v-if="effectiveDataSource === 'cache'" class="row row-link" :class="{ disabled: isNightTime() }" @click="onUpdateCacheClick">
 					<view class="row-main">
 						<view class="row-title">更新缓存数据</view>
 						<view class="row-subtitle">重新获取课表并覆盖本设备上的课表缓存。</view>
@@ -200,6 +207,13 @@ import { computed, onMounted, ref } from 'vue'
 import { getFeedbackSession } from '@/api/feedback.js'
 import { APP_VERSION } from '@/utils/app.js'
 import { clearAllLocalIdentity, getIdentitySummary } from '@/utils/auth.js'
+import {
+	getEffectiveDataSource,
+	getPreferredDataSource,
+	isNightForcedCache,
+	normalizeDataSourcePreference,
+	setDataSourcePreference
+} from '@/utils/dataSource.js'
 
 const defaultSettings = {
 	startDate: '',
@@ -208,6 +222,7 @@ const defaultSettings = {
 	totalWeeks: 20,
 	currentWeek: 1,
 	dataSource: 'online',
+	dataSourcePreference: 'online',
 	startDateNotMonday: false,
 	semesterMark: ''
 }
@@ -226,6 +241,8 @@ const sessionInfo = ref({
 	user_id: ''
 })
 const identitySummary = ref(getIdentitySummary())
+const timeTick = ref(Date.now())
+let settingsClockTimer = null
 
 const currentUserId = computed(() => {
 	return identitySummary.value.userId || sessionInfo.value.user_id || '未识别'
@@ -246,6 +263,11 @@ const authenticationDescription = computed(() => {
 	}
 	return '通过教务账号验证身份，登录信息仅保存在当前设备。'
 })
+
+const preferredDataSource = computed(() => getPreferredDataSource(settings.value))
+const effectiveDataSource = computed(() => getEffectiveDataSource(settings.value, isNightTime()))
+const nightForcedCache = computed(() => isNightForcedCache(settings.value, isNightTime()))
+const effectiveDataSourceLabel = computed(() => effectiveDataSource.value === 'online' ? '在线数据' : '缓存数据')
 
 const scheduleTimeTitle = computed(() => {
 	const month = new Date().getMonth() + 1
@@ -339,9 +361,13 @@ const saveSettings = () => {
 const loadSettings = () => {
 	const savedSettings = uni.getStorageSync('scheduleSettings')
 	if (savedSettings) {
-		settings.value = {
+		const mergedSettings = {
 			...defaultSettings,
 			...savedSettings
+		}
+		settings.value = normalizeDataSourcePreference(mergedSettings)
+		if (savedSettings.dataSourcePreference !== settings.value.dataSourcePreference || savedSettings.dataSource !== settings.value.dataSource) {
+			uni.setStorageSync('scheduleSettings', settings.value)
 		}
 		const currentSemester = getCurrentSemesterMark()
 		if (savedSettings.semesterMark !== currentSemester) {
@@ -392,12 +418,12 @@ const loadSession = async () => {
 }
 
 const isNightTime = () => {
+	timeTick.value
 	const beijingHour = new Date(Date.now() + 8 * 3600 * 1000).getUTCHours()
 	return beijingHour >= 22 || beijingHour < 6
 }
 
 const switchDataSource = (source) => {
-	if (settings.value.dataSource === source) return
 	if (source === 'online' && isNightTime()) {
 		uni.showToast({
 			title: '当前时间段在线数据不可用，请在白天操作',
@@ -405,13 +431,14 @@ const switchDataSource = (source) => {
 		})
 		return
 	}
+	if (preferredDataSource.value === source) return
 	if (source === 'cache') {
 		uni.showModal({
 			title: '切换数据源',
 			content: '缓存数据可能不是最新课表，确认切换到缓存数据吗？',
 			success: (res) => {
 				if (!res.confirm) return
-				settings.value.dataSource = source
+				settings.value = setDataSourcePreference(settings.value, source)
 				saveSettings()
 				uni.$emit('dataSourceUpdated', source)
 			}
@@ -419,7 +446,7 @@ const switchDataSource = (source) => {
 		return
 	}
 
-	settings.value.dataSource = source
+	settings.value = setDataSourcePreference(settings.value, source)
 	saveSettings()
 	uni.$emit('dataSourceUpdated', source)
 }
@@ -633,15 +660,25 @@ onMounted(async () => {
 	loadSettings()
 	refreshIdentitySummary()
 	await loadSession()
+	if (!settingsClockTimer) {
+		settingsClockTimer = setInterval(() => {
+			timeTick.value = Date.now()
+		}, 30000)
+	}
 })
 
 onShow(async () => {
+	timeTick.value = Date.now()
 	loadSettings()
 	refreshIdentitySummary()
 	await loadSession()
 })
 
 onUnload(() => {
+	if (settingsClockTimer) {
+		clearInterval(settingsClockTimer)
+		settingsClockTimer = null
+	}
 	if (!isClearingLocalData.value) saveSettings()
 })
 </script>
