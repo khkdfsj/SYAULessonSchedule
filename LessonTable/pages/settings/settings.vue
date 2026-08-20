@@ -180,8 +180,8 @@
 			<view class="group-card">
 				<view class="group-title">维护工具</view>
 				<view class="group-description">如遇课表异常，请先尝试清空缓存并重新认证；如仍未解决，可前往“问题反馈与建议”提交工单。</view>
-				<view class="tool-btn danger" @click="clearCustomCourses">清除自定义课程</view>
-				<view class="tool-btn" @click="clearLocalDataAndReauthenticate">清空缓存并重新认证</view>
+				<view class="tool-btn" @click="clearCustomCourses">清除自定义课程</view>
+				<view class="tool-btn danger" @click="clearLocalDataAndReauthenticate">清空缓存并重新认证</view>
 			</view>
 
 			<view class="tips-card">
