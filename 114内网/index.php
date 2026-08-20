@@ -21,6 +21,27 @@ if (!$authSessionLoaded) {
     exit('auth_session.php not found');
 }
 $kind = isset($_GET['kind']) ? $_GET['kind'] : '';
+
+function normalizeLessonScheduleReturnTarget($target)
+{
+    $fallback = 'https://debug.91nongye.cn/LessonSchedule/';
+    if (!is_string($target) || trim($target) === '') {
+        return $fallback;
+    }
+
+    $parts = parse_url(trim($target));
+    if (!$parts || ($parts['scheme'] ?? '') !== 'https' || ($parts['host'] ?? '') !== 'debug.91nongye.cn') {
+        return $fallback;
+    }
+
+    $path = $parts['path'] ?? '';
+    if ($path !== '/LessonSchedule' && strpos($path, '/LessonSchedule/') !== 0) {
+        return $fallback;
+    }
+
+    // H5 子页是前端路由，不是 Nginx 上的真实文件。授权完成后统一回到应用根页。
+    return $fallback;
+}
 // 判断是否存在code
 if (isset($_GET['code']) && !empty($_GET['code'])) {
     $code = $_GET["code"]; // 取出code
@@ -76,31 +97,20 @@ if (isset($_GET['code']) && !empty($_GET['code'])) {
 
     //进行跳转  
     $authSession = issueAuthSession($UserID);
-    if ($kind && is_string($kind) && (strpos($kind, 'http://') === 0 || strpos($kind, 'https://') === 0)) {
-        $separator = strpos($kind, '?') === false ? '?' : '&';
-        $target = $kind . $separator . http_build_query([
-            'UserID' => $UserID,
-            'auth_exp' => $authSession['auth_exp'],
-            'auth_sig' => $authSession['auth_sig']
-        ]);
-        header("Location: $target");
-        exit();
-    } else {
-        header("Location: https://debug.91nongye.cn/LessonSchedule?" . http_build_query([
-            'UserID' => $UserID,
-            'auth_exp' => $authSession['auth_exp'],
-            'auth_sig' => $authSession['auth_sig']
-        ]));
-        // echo json_encode($IdentityInformation, 256);
-        exit();
-    }
+    $target = normalizeLessonScheduleReturnTarget($kind) . '?' . http_build_query([
+        'UserID' => $UserID,
+        'auth_exp' => $authSession['auth_exp'],
+        'auth_sig' => $authSession['auth_sig']
+    ]);
+    header("Location: $target");
+    exit();
 
 } else {
     //发起授权  
     $action = "index.php";
     $corpid = "wxdbd5a48e19060bdf";
     $agentid = "1000060";
-    $redirect_url = "https://syauinfo.syau.edu.cn/LessonSchedule/" . $action . "?kind=" . $kind;
+    $redirect_url = "https://syauinfo.syau.edu.cn/LessonSchedule/" . $action . "?kind=" . rawurlencode(normalizeLessonScheduleReturnTarget($kind));
     ;
     $code_url = "https://open.weixin.qq.com/connect/oauth2/authorize?appid=" . $corpid . "&redirect_uri=" . urlencode($redirect_url) . "&response_type=code&scope=snsapi_privateinfo&state=STATE&agentid=" . $agentid . "#wechat_redirect";
     header("Location:" . $code_url);

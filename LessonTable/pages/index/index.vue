@@ -2094,10 +2094,11 @@ const redirectToLoginPage = () => {
 }
 
 const buildComWxAuthEntryUrl = () => {
-	if (typeof window === 'undefined' || !window.location?.href) {
+	if (typeof window === 'undefined' || !window.location?.origin) {
 		return 'https://syauinfo.syau.edu.cn/LessonSchedule/index.php'
 	}
-	return `https://syauinfo.syau.edu.cn/LessonSchedule/index.php?kind=${encodeURIComponent(window.location.href)}`
+	const appRootUrl = new URL('/LessonSchedule/', window.location.origin).href
+	return `https://syauinfo.syau.edu.cn/LessonSchedule/index.php?kind=${encodeURIComponent(appRootUrl)}`
 }
 
 const isEnterpriseServiceOfflineTime = () => {
@@ -2128,6 +2129,17 @@ const validateServerSession = async () => {
 		}
 	} catch (error) {
 		console.warn('会话校验失败:', error)
+		const existingSession = getAuthSession()
+		if (existingSession?.userId) {
+			setCurrentUserId(existingSession.userId)
+			return {
+				authenticated: true,
+				validation_unavailable: true,
+				is_admin: false,
+				user_id: existingSession.userId,
+				auth_exp: existingSession.authExp
+			}
+		}
 	}
 
 	clearAuthSession()

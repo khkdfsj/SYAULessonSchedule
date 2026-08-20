@@ -5,14 +5,14 @@ error_reporting(E_ALL);
 header("Content-Type: application/json;charset=utf-8");
 
 // 数据库配置
-define('DB_HOST', '118.190.147.249');
+define('DB_HOST', '127.0.0.1');
 define('DB_PORT', 3306);
 define('DB_USER', 'LessonTable');
 define('DB_PASS', 'syau8848@');
 define('DB_NAME', 'LessonTable');
 
 // 应用版本号（版本管理：前端每次进入校验 appVersion，非最新强制更新）
-define('APP_VERSION', '0.4.6');
+define('APP_VERSION', '0.4.7');
 
 // 学校课表接口夜间不可用：22:00-06:00 强制读取数据库缓存，不访问上游。
 define('QUIET_START', '22:00');

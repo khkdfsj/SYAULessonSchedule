@@ -7,7 +7,7 @@ header('Content-Type: application/json;charset=utf-8');
 
 require_once __DIR__ . '/auth_session.php';
 
-define('DB_HOST', '118.190.147.249');
+define('DB_HOST', '127.0.0.1');
 define('DB_PORT', 3306);
 define('DB_USER', 'LessonTable');
 define('DB_PASS', 'syau8848@');
@@ -38,8 +38,16 @@ function readJsonInput()
 function dbConnect($strict = true)
 {
     mysqli_report(MYSQLI_REPORT_OFF);
-    $conn = @new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME, DB_PORT);
-    if ($conn->connect_error) {
+    $conn = mysqli_init();
+    if (!$conn) {
+        if ($strict) {
+            sendJson(500, '数据库连接失败', [], 500);
+        }
+        return null;
+    }
+
+    $conn->options(MYSQLI_OPT_CONNECT_TIMEOUT, 3);
+    if (!@$conn->real_connect(DB_HOST, DB_USER, DB_PASS, DB_NAME, DB_PORT)) {
         if ($strict) {
             sendJson(500, '数据库连接失败', [], 500);
         }

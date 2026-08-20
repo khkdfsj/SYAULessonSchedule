@@ -7,7 +7,7 @@ header('Content-Type: application/json;charset=utf-8');
 
 require_once __DIR__ . '/auth_session.php';
 
-define('DB_HOST', '118.190.147.249');
+define('DB_HOST', '127.0.0.1');
 define('DB_PORT', 3306);
 define('DB_USER', 'LessonTable');
 define('DB_PASS', 'syau8848@');
