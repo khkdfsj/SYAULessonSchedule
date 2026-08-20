@@ -9,16 +9,8 @@
 		</view>
 
 		<scroll-view scroll-y class="settings-scroll">
-			<view class="summary-card identity-card">
-				<view class="summary-top">
-					<view>
-						<view class="summary-title">身份状态</view>
-						<view class="summary-subtitle">用于获取课表及使用互动功能。</view>
-					</view>
-					<view class="summary-badge" :class="{ warn: !sessionInfo.authenticated }">
-						{{ sessionInfo.authenticated ? '认证有效' : '需要认证' }}
-					</view>
-				</view>
+			<view class="group-card identity-card">
+				<view class="group-title">身份状态</view>
 				<view class="row">
 					<view class="row-main">
 						<view class="row-title">当前学号</view>
@@ -63,7 +55,7 @@
 				</view>
 				<view v-if="identitySummary.canLogout" class="tool-btn danger" @click="logoutManualIdentity">退出并清除本地登录信息</view>
 				<view v-else class="inline-tip">
-					{{ identitySummary.authSource === 'qywx' ? '企业微信身份由工作台统一认证。' : '当前没有已保存的账号登录信息。' }}
+					{{ identitySummary.authSource === 'qywx' ? '当前使用企业微信认证。' : '当前没有已保存的账号登录信息。' }}
 				</view>
 			</view>
 
@@ -187,6 +179,7 @@
 
 			<view class="group-card">
 				<view class="group-title">维护工具</view>
+				<view class="group-description">如遇课表异常，请先尝试清空缓存并重新认证；如仍未解决，可前往“问题反馈与建议”提交工单。</view>
 				<view class="tool-btn danger" @click="clearCustomCourses">清除自定义课程</view>
 				<view class="tool-btn" @click="clearLocalDataAndReauthenticate">清空缓存并重新认证</view>
 			</view>
@@ -239,8 +232,8 @@ const currentUserId = computed(() => {
 })
 
 const authenticationMethodLabel = computed(() => {
-	if (identitySummary.value.authSource === 'qywx') return '企业微信'
-	if (identitySummary.value.authSource === 'manual') return '账号密码'
+	if (identitySummary.value.authSource === 'qywx') return '企业微信认证'
+	if (identitySummary.value.authSource === 'manual') return '账号密码认证'
 	return '未认证'
 })
 
@@ -249,7 +242,7 @@ const authenticationDescription = computed(() => {
 		return '当前认证已失效，请在白天重新认证后使用互动功能。'
 	}
 	if (identitySummary.value.authSource === 'qywx') {
-		return '由企业微信工作台确认身份，无需输入账号密码。'
+		return '通过企业微信认证身份，无需输入账号密码。'
 	}
 	return '通过教务账号验证身份，登录信息仅保存在当前设备。'
 })
@@ -755,6 +748,13 @@ onUnload(() => {
 
 .group-title {
 	margin-bottom: 12rpx;
+}
+
+.group-description {
+	margin-bottom: 14rpx;
+	font-size: 22rpx;
+	line-height: 1.6;
+	color: #64748b;
 }
 
 .row {
