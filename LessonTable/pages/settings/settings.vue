@@ -9,44 +9,41 @@
 		</view>
 
 		<scroll-view scroll-y class="settings-scroll">
-			<view class="summary-card">
+			<view class="summary-card identity-card">
 				<view class="summary-top">
 					<view>
-						<view class="summary-title">课表体验设置</view>
-						<view class="summary-subtitle">自动保存，返回课表后立即生效。</view>
+						<view class="summary-title">身份状态</view>
+						<view class="summary-subtitle">用于获取课表及使用互动功能。</view>
 					</view>
 					<view class="summary-badge" :class="{ warn: !sessionInfo.authenticated }">
-						{{ sessionInfo.authenticated ? '已认证' : '待认证' }}
+						{{ sessionInfo.authenticated ? '认证有效' : '需要认证' }}
 					</view>
-				</view>
-				<view class="summary-meta">
-					<text>当前学号：{{ currentUserId }}</text>
-					<text>身份来源：{{ identitySummary.sourceLabel }}</text>
-					<text>管理员：{{ sessionInfo.is_admin ? '是' : '否' }}</text>
-					<text>数据来源：{{ settings.dataSource === 'online' ? '在线数据' : (isNightTime() ? '缓存数据（夜间强制使用）' : '缓存数据') }}</text>
-				</view>
-			</view>
-
-			<view class="group-card">
-				<view class="group-title">身份与登录</view>
-				<view class="row">
-					<view class="row-main">
-						<view class="row-title">当前身份</view>
-						<view class="row-subtitle">{{ sessionHint }}</view>
-					</view>
-					<view class="row-value">{{ identitySummary.sourceLabel }}</view>
 				</view>
 				<view class="row">
 					<view class="row-main">
-						<view class="row-title">签名状态</view>
-						<view class="row-subtitle">反馈、课程评论和点赞都依赖有效签名。</view>
+						<view class="row-title">当前学号</view>
+						<view class="row-subtitle">当前设备正在使用的课表账号。</view>
 					</view>
-					<view class="row-value">{{ sessionInfo.authenticated ? '有效' : '已过期' }}</view>
+					<view class="row-value">{{ currentUserId }}</view>
+				</view>
+				<view class="row">
+					<view class="row-main">
+						<view class="row-title">认证方式</view>
+						<view class="row-subtitle">{{ authenticationDescription }}</view>
+					</view>
+					<view class="row-value">{{ authenticationMethodLabel }}</view>
+				</view>
+				<view class="row" v-if="sessionInfo.is_admin">
+					<view class="row-main">
+						<view class="row-title">管理员权限</view>
+						<view class="row-subtitle">可使用反馈、课程讨论和公告管理功能。</view>
+					</view>
+					<view class="row-value">已启用</view>
 				</view>
 				<view class="row" v-if="identitySummary.account">
 					<view class="row-main">
 						<view class="row-title">已保存账号</view>
-						<view class="row-subtitle">仅用于本机手动登录，不上传数据库。</view>
+						<view class="row-subtitle">用于当前设备下次快速登录。</view>
 					</view>
 					<view class="row-value">{{ identitySummary.account }}</view>
 				</view>
@@ -60,13 +57,13 @@
 				<view class="row row-link" v-if="identitySummary.authSource !== 'qywx'" @click="goLogin">
 					<view class="row-main">
 						<view class="row-title">{{ identitySummary.authSource === 'manual' ? '重新登录' : '打开登录页' }}</view>
-						<view class="row-subtitle">手动登录可重新获取签名，并更新本地账号信息。</view>
+						<view class="row-subtitle">重新验证身份并更新当前设备上的账号信息。</view>
 					</view>
 					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
 				</view>
 				<view v-if="identitySummary.canLogout" class="tool-btn danger" @click="logoutManualIdentity">退出并清除本地登录信息</view>
 				<view v-else class="inline-tip">
-					{{ identitySummary.authSource === 'qywx' ? '当前身份来自企业微信直达，不提供退出登录。' : '当前没有可退出的手动登录信息。' }}
+					{{ identitySummary.authSource === 'qywx' ? '企业微信身份由工作台统一认证。' : '当前没有已保存的账号登录信息。' }}
 				</view>
 			</view>
 
@@ -75,28 +72,28 @@
 				<view class="row row-link" @click="goFeedbackCenter">
 					<view class="row-main">
 						<view class="row-title">问题反馈与建议</view>
-						<view class="row-subtitle">提交问题、查看建议广场与互动记录。</view>
+						<view class="row-subtitle">提交使用问题或功能建议，并查看处理进度。</view>
 					</view>
 					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
 				</view>
 				<view v-if="sessionInfo.is_admin" class="row row-link" @click="goAdminFeedback">
 					<view class="row-main">
 						<view class="row-title">反馈管理</view>
-						<view class="row-subtitle">处理问题单、维护建议回复。</view>
+						<view class="row-subtitle">处理用户反馈，回复和维护建议内容。</view>
 					</view>
 					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
 				</view>
 				<view v-if="sessionInfo.is_admin" class="row row-link" @click="goAdminCourseComments">
 					<view class="row-main">
 						<view class="row-title">课程评论管理</view>
-						<view class="row-subtitle">查看已有课程评论区，删除违规评论。</view>
+						<view class="row-subtitle">管理课程讨论内容，处理不当留言。</view>
 					</view>
 					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
 				</view>
 				<view class="row row-link" @click="goDevlog">
 					<view class="row-main">
 						<view class="row-title">开发日志</view>
-						<view class="row-subtitle">查看 v{{ APP_VERSION }} 更新记录。</view>
+						<view class="row-subtitle">查看当前版本的功能更新与历史记录。</view>
 					</view>
 					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
 				</view>
@@ -107,7 +104,7 @@
 				<view class="row column-row">
 					<view class="row-main">
 						<view class="row-title">数据来源</view>
-						<view class="row-subtitle">在线数据适合白天刷新，缓存数据适合夜间查看。</view>
+						<view class="row-subtitle">在线模式请求最新可用课表；缓存模式读取本设备已保存的数据。</view>
 					</view>
 					<view class="segment">
 						<view
@@ -125,12 +122,12 @@
 							{{ isNightTime() ? '缓存数据（夜间强制使用）' : '缓存数据' }}
 						</view>
 					</view>
-					<view v-if="isNightTime()" class="night-note">夜间时段（22:00–次日06:00）内网课表服务关闭，当前强制使用缓存数据。</view>
+					<view v-if="isNightTime()" class="night-note">22:00至次日06:00实时课表服务暂停，当前仅可使用本机缓存。</view>
 				</view>
 				<view v-if="settings.dataSource === 'cache'" class="row row-link" :class="{ disabled: isNightTime() }" @click="onUpdateCacheClick">
 					<view class="row-main">
 						<view class="row-title">更新缓存数据</view>
-						<view class="row-subtitle">白天拉取在线课表并刷新缓存。</view>
+						<view class="row-subtitle">重新获取课表并覆盖本设备上的课表缓存。</view>
 					</view>
 					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
 				</view>
@@ -159,7 +156,7 @@
 				<view class="row">
 					<view class="row-main">
 						<view class="row-title">界面动画</view>
-						<view class="row-subtitle">控制轻量切换和按压反馈。</view>
+						<view class="row-subtitle">控制课程卡片和页面的切换动画。</view>
 					</view>
 					<switch :checked="settings.enableAnimation" color="#2563eb" @change="onEnableAnimationChange" />
 				</view>
@@ -191,14 +188,15 @@
 			<view class="group-card">
 				<view class="group-title">维护工具</view>
 				<view class="tool-btn danger" @click="clearCustomCourses">清除自定义课程</view>
-				<view class="tool-btn" @click="resetToDefault">恢复默认设置</view>
+				<view class="tool-btn" @click="clearLocalDataAndReauthenticate">清空缓存并重新认证</view>
 			</view>
 
 			<view class="tips-card">
 				<view class="tips-title">说明</view>
-				<text>1. 手动登录保存的账号、密码和个人资料只在当前设备本地保留，不上传数据库。</text>
-				<text>2. 夜间建议切换到缓存模式查看课表；写反馈、课程评论和点赞仍需要有效签名。</text>
-				<text>3. 课程评论只对接口课程开放，自建课程不会进入评论区。</text>
+				<text>1. 当前账号和个性化设置保存在本设备，更换设备后需要重新认证和设置。</text>
+				<text>2. 22:00至次日06:00实时服务暂停，课表会自动使用本机缓存。</text>
+				<text>3. 自定义课程只保存在本设备，不参与课程讨论和课程群。</text>
+				<text>4. “清空缓存并重新认证”会删除本设备上的课表、设置、自定义课程和登录信息。</text>
 			</view>
 		</scroll-view>
 	</view>
@@ -223,10 +221,12 @@ const defaultSettings = {
 
 const CUSTOM_COURSE_STORE_KEY = 'CustomCoursesByUser'
 const CUSTOM_COURSE_META_KEY = 'CustomCourseMetaByUser'
+const ANNOUNCEMENT_SEEN_PREFIX = 'LessonSchedule.AnnouncementSeen.'
 
 const settings = ref({
 	...defaultSettings
 })
+const isClearingLocalData = ref(false)
 const sessionInfo = ref({
 	authenticated: false,
 	is_admin: false,
@@ -238,13 +238,20 @@ const currentUserId = computed(() => {
 	return identitySummary.value.userId || sessionInfo.value.user_id || '未识别'
 })
 
-const sessionHint = computed(() => {
-	if (sessionInfo.value.authenticated) {
-		return identitySummary.value.authSource === 'qywx'
-			? '当前身份来自企业微信直达，反馈和课程评论写操作可直接使用。'
-			: '当前为手动登录身份，反馈和课程评论会沿用这组签名。'
+const authenticationMethodLabel = computed(() => {
+	if (identitySummary.value.authSource === 'qywx') return '企业微信'
+	if (identitySummary.value.authSource === 'manual') return '账号密码'
+	return '未认证'
+})
+
+const authenticationDescription = computed(() => {
+	if (!sessionInfo.value.authenticated) {
+		return '当前认证已失效，请在白天重新认证后使用互动功能。'
 	}
-	return '签名已失效。白天重新认证后才能继续评论、点赞和提交反馈。'
+	if (identitySummary.value.authSource === 'qywx') {
+		return '由企业微信工作台确认身份，无需输入账号密码。'
+	}
+	return '通过教务账号验证身份，登录信息仅保存在当前设备。'
 })
 
 const scheduleTimeTitle = computed(() => {
@@ -486,25 +493,55 @@ const clearCustomCourses = () => {
 	})
 }
 
-const resetToDefault = () => {
+const clearAnnouncementSeenMarkers = () => {
+	if (typeof window === 'undefined' || !window.localStorage) return
+	const keys = []
+	for (let index = 0; index < window.localStorage.length; index += 1) {
+		const key = window.localStorage.key(index)
+		if (key && key.startsWith(ANNOUNCEMENT_SEEN_PREFIX)) keys.push(key)
+	}
+	keys.forEach(key => window.localStorage.removeItem(key))
+}
+
+const restartAfterLocalDataClear = () => {
+	if (typeof window !== 'undefined' && window.location?.origin) {
+		const restartUrl = new URL('/LessonSchedule/', window.location.origin)
+		restartUrl.searchParams.set('reset', `${Date.now()}`)
+		window.location.replace(restartUrl.href)
+		return
+	}
+	uni.reLaunch({
+		url: '/pages/index/index'
+	})
+}
+
+const clearLocalDataAndReauthenticate = () => {
+	if (isNightTime()) {
+		uni.showModal({
+			title: '当前无法重新认证',
+			content: '22:00至次日06:00认证服务暂停。为避免清空后无法进入课表，请在白天使用此功能。',
+			showCancel: false,
+			confirmText: '知道了'
+		})
+		return
+	}
+
 	uni.showModal({
-		title: '恢复默认设置',
-		content: '确定要恢复默认设置吗？',
+		title: '清空缓存并重新认证',
+		content: '将清除本设备上的课表缓存、个性化设置、自定义课程及登录信息，并重新加载最新版课表。该操作不可恢复，是否继续？',
+		confirmText: '清空并重新认证',
+		cancelText: '取消',
 		success: (res) => {
 			if (!res.confirm) return
-			const today = new Date()
-			const year = today.getFullYear()
-			const month = today.getMonth() + 1
-			settings.value = {
-				...defaultSettings,
-				startDate: month >= 1 && month <= 7 ? `${year}/03/01` : `${year}/08/25`,
-				semesterMark: getCurrentSemesterMark()
-			}
-			saveSettings()
-			uni.showToast({
-				title: '已恢复默认设置',
-				icon: 'success'
+			isClearingLocalData.value = true
+			clearAllLocalIdentity()
+			uni.clearStorageSync()
+			clearAnnouncementSeenMarkers()
+			uni.showLoading({
+				title: '正在重新加载',
+				mask: true
 			})
+			setTimeout(restartAfterLocalDataClear, 120)
 		}
 	})
 }
@@ -612,7 +649,7 @@ onShow(async () => {
 })
 
 onUnload(() => {
-	saveSettings()
+	if (!isClearingLocalData.value) saveSettings()
 })
 </script>
 
