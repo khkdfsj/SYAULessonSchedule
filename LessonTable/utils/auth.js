@@ -2,6 +2,7 @@ const AUTH_SESSION_KEY = 'AuthSession'
 const MANUAL_LOGIN_KEY = 'ManualLoginState'
 const USER_ID_KEY = 'UserID'
 const COMWX_REDIRECT_KEY = 'ComWxAutoAuthAttempt'
+const ADMIN_DEBUG_KEY = 'AdminDebugState'
 const COOKIE_PREFIX = 'LessonSchedule.'
 const COOKIE_TTL_DAYS = 180
 
@@ -99,7 +100,9 @@ const normalizeSession = (value) => {
 	const userId = normalizeUserId(value.userId || value.user_id)
 	const authExp = Number(value.authExp || value.auth_exp || 0)
 	const authSig = `${value.authSig || value.auth_sig || ''}`.trim()
-	const authSource = value.authSource === 'qywx' ? 'qywx' : 'manual'
+	const authSource = value.authSource === 'qywx'
+		? 'qywx'
+		: (value.authSource === 'debug' ? 'debug' : 'manual')
 	if (!userId || !authExp || !authSig) return null
 	return {
 		userId,
@@ -262,6 +265,58 @@ export const clearAllLocalIdentity = () => {
 	removePersistentValue(COMWX_REDIRECT_KEY)
 }
 
+const normalizeAdminDebugState = (value) => {
+	if (!value || typeof value !== 'object') return null
+	const adminSession = normalizeSession(value.adminSession)
+	const targetUserId = normalizeUserId(value.targetUserId)
+	const startedAt = Number(value.startedAt || 0)
+	const expiresAt = Number(value.expiresAt || 0)
+	if (!adminSession || !targetUserId || !startedAt || !expiresAt) return null
+	return {
+		adminSession,
+		adminUserId: adminSession.userId,
+		targetUserId,
+		startedAt,
+		expiresAt
+	}
+}
+
+export const getAdminDebugState = () => {
+	return normalizeAdminDebugState(uni.getStorageSync(ADMIN_DEBUG_KEY))
+}
+
+export const enterAdminDebugSession = (targetSessionLike) => {
+	const adminSession = getAuthSession()
+	const targetSession = normalizeSession({
+		...targetSessionLike,
+		authSource: 'debug'
+	})
+	if (!adminSession || !targetSession || adminSession.userId === targetSession.userId) return null
+
+	const debugState = {
+		adminSession,
+		adminUserId: adminSession.userId,
+		targetUserId: targetSession.userId,
+		startedAt: Date.now(),
+		expiresAt: targetSession.authExp
+	}
+
+	clearAllLocalIdentity()
+	uni.clearStorageSync()
+	uni.setStorageSync(ADMIN_DEBUG_KEY, debugState)
+	setAuthSession(targetSession)
+	return normalizeAdminDebugState(debugState)
+}
+
+export const exitAdminDebugSession = () => {
+	const debugState = getAdminDebugState()
+	if (!debugState) return null
+	const adminSession = debugState.adminSession
+	clearAllLocalIdentity()
+	uni.clearStorageSync()
+	return setAuthSession(adminSession)
+}
+
 export const buildAuthPayload = (extra = {}) => {
 	const session = getAuthSession()
 	const userId = normalizeUserId(
@@ -300,11 +355,14 @@ export const getIdentitySummary = () => {
 		userId,
 		authenticated: hasValidAuthSession(),
 		authSource,
-		sourceLabel: authSource === 'qywx' ? '企业微信直达' : (authSource === 'manual' ? '手动登录' : '未识别'),
+		sourceLabel: authSource === 'qywx'
+			? '企业微信直达'
+			: (authSource === 'debug' ? '管理员调试' : (authSource === 'manual' ? '手动登录' : '未识别')),
 		rememberPassword: manualState?.rememberPassword === true,
-		profile: manualState?.profile || null,
+		profile: authSource === 'debug' ? null : (manualState?.profile || null),
 		account: manualState?.account || '',
-		canLogout: authSource === 'manual' && !!(userId || manualState)
+		canLogout: authSource === 'manual' && !!(userId || manualState),
+		isDebug: authSource === 'debug'
 	}
 }
 

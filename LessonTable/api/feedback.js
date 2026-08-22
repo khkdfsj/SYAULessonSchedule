@@ -12,6 +12,16 @@ export function getFeedbackSession() {
 	})
 }
 
+export function startAdminDebug(targetUserId) {
+	return requestRaw({
+		url: FEEDBACK_API_URL,
+		data: buildAuthPayload({
+			action: 'admin_debug_start',
+			target_user_id: targetUserId
+		})
+	})
+}
+
 export function getFeedbackThreadList(scope, options = {}) {
 	return requestRaw({
 		url: FEEDBACK_API_URL,

@@ -84,6 +84,13 @@
 			}
 		},
 		{
+			"path" : "pages/admin-debug/index",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
 			"path" : "pages/devlog/index",
 			"style" :
 			{

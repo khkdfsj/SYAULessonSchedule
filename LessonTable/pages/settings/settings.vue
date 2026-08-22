@@ -9,6 +9,12 @@
 		</view>
 
 		<scroll-view scroll-y class="settings-scroll">
+			<view v-if="debugState" class="group-card debug-mode-card">
+				<view class="group-title">调试模式</view>
+				<view class="group-description">当前所有课表和互动功能均使用测试学号 {{ debugState.targetUserId }}。</view>
+				<view class="tool-btn danger" @click="confirmExitDebug">退出调试并返回本人</view>
+			</view>
+
 			<view class="group-card identity-card">
 				<view class="group-title">身份状态</view>
 				<view class="row">
@@ -39,6 +45,13 @@
 					</view>
 					<view class="row-value">已启用</view>
 				</view>
+				<view class="row row-link" v-if="sessionInfo.is_admin && !debugState" @click="goAdminDebug">
+					<view class="row-main">
+						<view class="row-title">用户调试</view>
+						<view class="row-subtitle">切换到指定学号，排查该用户的课表和互动功能。</view>
+					</view>
+					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
+				</view>
 				<view class="row" v-if="identitySummary.account">
 					<view class="row-main">
 						<view class="row-title">已保存账号</view>
@@ -46,14 +59,14 @@
 					</view>
 					<view class="row-value">{{ identitySummary.account }}</view>
 				</view>
-				<view class="row" v-if="identitySummary.authSource !== 'qywx'">
+				<view class="row" v-if="identitySummary.authSource === 'manual'">
 					<view class="row-main">
 						<view class="row-title">记住密码</view>
 						<view class="row-subtitle">只保存在当前设备浏览器，本机可随时清除。</view>
 					</view>
 					<view class="row-value">{{ identitySummary.rememberPassword ? '已开启' : '未开启' }}</view>
 				</view>
-				<view class="row row-link" v-if="identitySummary.authSource !== 'qywx'" @click="goLogin">
+				<view class="row row-link" v-if="identitySummary.authSource !== 'qywx' && identitySummary.authSource !== 'debug'" @click="goLogin">
 					<view class="row-main">
 						<view class="row-title">{{ identitySummary.authSource === 'manual' ? '重新登录' : '打开登录页' }}</view>
 						<view class="row-subtitle">重新验证身份并更新当前设备上的账号信息。</view>
@@ -61,7 +74,7 @@
 					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
 				</view>
 				<view v-if="identitySummary.canLogout" class="tool-btn danger" @click="logoutManualIdentity">退出并清除本地登录信息</view>
-				<view v-else class="inline-tip">
+				<view v-else-if="!debugState" class="inline-tip">
 					{{ identitySummary.authSource === 'qywx' ? '当前使用企业微信认证。' : '当前没有已保存的账号登录信息。' }}
 				</view>
 			</view>
@@ -188,7 +201,7 @@
 				<view class="group-title">维护工具</view>
 				<view class="group-description">如遇课表异常，请先尝试清空缓存并重新认证；如仍未解决，可前往“问题反馈与建议”提交工单。</view>
 				<view class="tool-btn" @click="clearCustomCourses">清除自定义课程</view>
-				<view class="tool-btn danger" @click="clearLocalDataAndReauthenticate">清空缓存并重新认证</view>
+				<view v-if="!debugState" class="tool-btn danger" @click="clearLocalDataAndReauthenticate">清空缓存并重新认证</view>
 			</view>
 
 			<view class="tips-card">
@@ -206,7 +219,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { getFeedbackSession } from '@/api/feedback.js'
 import { APP_VERSION } from '@/utils/app.js'
-import { clearAllLocalIdentity, getIdentitySummary } from '@/utils/auth.js'
+import {
+	clearAllLocalIdentity,
+	exitAdminDebugSession,
+	getAdminDebugState,
+	getIdentitySummary
+} from '@/utils/auth.js'
 import {
 	getEffectiveDataSource,
 	getPreferredDataSource,
@@ -241,6 +259,7 @@ const sessionInfo = ref({
 	user_id: ''
 })
 const identitySummary = ref(getIdentitySummary())
+const debugState = ref(getAdminDebugState())
 const timeTick = ref(Date.now())
 let settingsClockTimer = null
 
@@ -249,6 +268,7 @@ const currentUserId = computed(() => {
 })
 
 const authenticationMethodLabel = computed(() => {
+	if (identitySummary.value.authSource === 'debug') return '管理员调试'
 	if (identitySummary.value.authSource === 'qywx') return '企业微信认证'
 	if (identitySummary.value.authSource === 'manual') return '账号密码认证'
 	return '未认证'
@@ -257,6 +277,9 @@ const authenticationMethodLabel = computed(() => {
 const authenticationDescription = computed(() => {
 	if (!sessionInfo.value.authenticated) {
 		return '当前认证已失效，请在白天重新认证后使用互动功能。'
+	}
+	if (identitySummary.value.authSource === 'debug') {
+		return '当前正在使用管理员签发的临时调试身份。'
 	}
 	if (identitySummary.value.authSource === 'qywx') {
 		return '通过企业微信认证身份，无需输入账号密码。'
@@ -338,6 +361,7 @@ const displayScheduleRows = computed(() => {
 
 const refreshIdentitySummary = () => {
 	identitySummary.value = getIdentitySummary()
+	debugState.value = getAdminDebugState()
 }
 
 const getCurrentSemesterMark = () => {
@@ -584,6 +608,40 @@ const goAdminCourseComments = () => {
 	})
 }
 
+const goAdminDebug = () => {
+	uni.navigateTo({
+		url: '/pages/admin-debug/index'
+	})
+}
+
+const restartAtSchedule = (parameter) => {
+	if (typeof window !== 'undefined' && window.location?.origin) {
+		const restartUrl = new URL('/LessonSchedule/', window.location.origin)
+		restartUrl.searchParams.set(parameter, `${Date.now()}`)
+		window.location.replace(restartUrl.href)
+		return
+	}
+	uni.reLaunch({ url: '/pages/index/index' })
+}
+
+const confirmExitDebug = () => {
+	if (!debugState.value) return
+	uni.showModal({
+		title: '退出调试模式',
+		content: '将清除测试用户产生的本机缓存，并恢复管理员本人身份。',
+		confirmText: '返回本人',
+		cancelText: '取消',
+		success: (result) => {
+			if (!result.confirm) return
+			if (!exitAdminDebugSession()) {
+				uni.showToast({ title: '管理员身份恢复失败，请重新认证', icon: 'none' })
+				return
+			}
+			restartAtSchedule('debug_exit')
+		}
+	})
+}
+
 const goDevlog = () => {
 	uni.navigateTo({
 		url: '/pages/devlog/index'
@@ -785,6 +843,11 @@ onUnload(() => {
 
 .group-title {
 	margin-bottom: 12rpx;
+}
+
+.debug-mode-card {
+	background: linear-gradient(135deg, rgba(255, 247, 237, 0.98), rgba(255, 255, 255, 0.96));
+	box-shadow: 0 14rpx 34rpx rgba(234, 88, 12, 0.08);
 }
 
 .group-description {

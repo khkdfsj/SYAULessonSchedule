@@ -96,6 +96,14 @@
 		</view>
 	</scroll-view>
 
+	<view v-if="debugState" class="admin-debug-float" @click.stop>
+		<view class="admin-debug-copy">
+			<text class="admin-debug-label">调试身份</text>
+			<text class="admin-debug-user">{{ debugState.targetUserId }}</text>
+		</view>
+		<view class="admin-debug-exit" @click.stop="confirmExitAdminDebug">返回本人</view>
+	</view>
+
 	<view v-if="bottomSheetVisible" class="sheet-mask" :class="{ show: sheetOpen, motionless: !animationEnabled }"
 		@click="handleSheetMaskTap($event)"></view>
 	<view v-if="bottomSheetVisible" class="bottom-sheet"
@@ -198,6 +206,8 @@ import {
 import {
 	clearAuthSession,
 	clearComWxAutoAuthAttempt,
+	exitAdminDebugSession,
+	getAdminDebugState,
 	getAuthSession,
 	hydrateCurrentUserFromManualState,
 	markComWxAutoAuthAttempt,
@@ -221,6 +231,7 @@ defineOptions({
 
 const CUSTOM_COURSE_STORE_KEY = 'CustomCoursesByUser'
 const CUSTOM_COURSE_META_KEY = 'CustomCourseMetaByUser'
+const debugState = ref(getAdminDebugState())
 var ScheduleData = ref({
 	UserID: '',
 	TemporaryWeek: 1,
@@ -1047,6 +1058,30 @@ const goToSettings = (event) => {
 	uni.navigateTo({
 		url: '/pages/settings/settings'
 	});
+}
+
+const confirmExitAdminDebug = () => {
+	if (!debugState.value) return
+	uni.showModal({
+		title: '退出调试模式',
+		content: '将清除测试用户产生的本机缓存，并恢复管理员本人身份。',
+		confirmText: '返回本人',
+		cancelText: '取消',
+		success: (result) => {
+			if (!result.confirm) return
+			if (!exitAdminDebugSession()) {
+				uni.showToast({ title: '管理员身份恢复失败，请重新认证', icon: 'none' })
+				return
+			}
+			if (typeof window !== 'undefined' && window.location?.origin) {
+				const restartUrl = new URL('/LessonSchedule/', window.location.origin)
+				restartUrl.searchParams.set('debug_exit', `${Date.now()}`)
+				window.location.replace(restartUrl.href)
+				return
+			}
+			uni.reLaunch({ url: '/pages/index/index' })
+		}
+	})
 }
 
 const SelectWeeksPopup = (event) => {
@@ -2255,6 +2290,18 @@ const bootstrapIndexPage = async (routeParams = {}) => {
 	updateLayoutMetrics();
 	closeBottomSheet();
 	ensureDataSourcePreference()
+	const activeDebugState = getAdminDebugState()
+	if (activeDebugState && activeDebugState.expiresAt * 1000 <= Date.now()) {
+		exitAdminDebugSession()
+		if (typeof window !== 'undefined' && window.location?.origin) {
+			const restartUrl = new URL('/LessonSchedule/', window.location.origin)
+			restartUrl.searchParams.set('debug_expired', `${Date.now()}`)
+			window.location.replace(restartUrl.href)
+			return
+		}
+		uni.reLaunch({ url: '/pages/index/index' })
+		return
+	}
 
 	const previousSession = getAuthSession()
 	const routeSession = saveAuthSessionFromRoute(routeParams)
@@ -2574,6 +2621,47 @@ onUnmounted(() => {
 	height: 100vh;
 	z-index: -1;
 	background: linear-gradient(180deg, rgba(249, 251, 255, 0.36) 0%, rgba(255, 255, 255, 0.16) 100%);
+}
+
+.admin-debug-float {
+	position: fixed;
+	right: 14px;
+	bottom: calc(env(safe-area-inset-bottom) + 76px);
+	z-index: 90;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 9px 10px 9px 13px;
+	border-radius: 16px;
+	background: rgba(15, 23, 42, 0.92);
+	box-shadow: 0 10px 28px rgba(15, 23, 42, 0.24);
+	backdrop-filter: blur(12px);
+}
+
+.admin-debug-copy {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+
+.admin-debug-label {
+	font-size: 10px;
+	color: #cbd5e1;
+}
+
+.admin-debug-user {
+	font-size: 13px;
+	font-weight: 700;
+	color: #fff;
+}
+
+.admin-debug-exit {
+	padding: 7px 10px;
+	border-radius: 10px;
+	background: #fff;
+	font-size: 12px;
+	font-weight: 700;
+	color: #c2410c;
 }
 
 .layout {

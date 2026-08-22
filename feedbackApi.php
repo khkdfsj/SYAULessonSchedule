@@ -12,6 +12,7 @@ define('DB_PORT', 3306);
 define('DB_USER', 'LessonTable');
 define('DB_PASS', 'syau8848@');
 define('DB_NAME', 'LessonTable');
+define('ADMIN_DEBUG_SESSION_TTL', 60 * 60 * 2);
 
 function sendJson($code, $msg, $data = [], $httpStatus = 200)
 {
@@ -121,6 +122,40 @@ function isAdminUser($conn, $userId)
     $stmt->close();
 
     return $isAdmin;
+}
+
+function logAdminDebugStart($conn, $adminUserId, $targetUserId)
+{
+    if (!$conn instanceof mysqli) {
+        return false;
+    }
+
+    $created = $conn->query(
+        'CREATE TABLE IF NOT EXISTS admin_debug_audit (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            admin_user_id VARCHAR(20) NOT NULL,
+            target_user_id VARCHAR(20) NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_admin_debug_created_at (created_at),
+            KEY idx_admin_debug_target (target_user_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+    );
+    if (!$created) {
+        return false;
+    }
+
+    $stmt = $conn->prepare(
+        'INSERT INTO admin_debug_audit (admin_user_id, target_user_id, created_at)
+         VALUES (?, ?, NOW())'
+    );
+    if (!$stmt) {
+        return false;
+    }
+    $stmt->bind_param('ss', $adminUserId, $targetUserId);
+    $saved = $stmt->execute();
+    $stmt->close();
+    return $saved;
 }
 
 function buildSessionContext($conn, $input)
@@ -501,6 +536,30 @@ try {
 
     $conn = dbConnect();
     $context = buildSessionContext($conn, $input);
+
+    if ($action === 'admin_debug_start') {
+        requireAdmin($context);
+
+        $targetUserId = normalizeUserId($input['target_user_id'] ?? '');
+        if ($targetUserId === '' || !preg_match('/^\d{8,12}$/', $targetUserId)) {
+            sendJson(400, '请输入正确的学号', [], 400);
+        }
+        if ($targetUserId === $context['user_id']) {
+            sendJson(400, '当前已经是该身份', [], 400);
+        }
+
+        $debugSession = issueAuthSession($targetUserId, ADMIN_DEBUG_SESSION_TTL);
+        if (!logAdminDebugStart($conn, $context['user_id'], $targetUserId)) {
+            sendJson(500, '调试身份记录失败，请稍后重试', [], 500);
+        }
+
+        sendJson(200, '调试身份已准备', [
+            'admin_user_id' => $context['user_id'],
+            'target_user_id' => $targetUserId,
+            'session' => $debugSession,
+            'expires_at' => $debugSession['auth_exp']
+        ]);
+    }
 
     if ($action === 'thread_list') {
         $scope = trim((string) ($input['scope'] ?? 'suggestions'));
