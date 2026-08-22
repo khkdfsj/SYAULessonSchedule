@@ -162,6 +162,8 @@ function bridgeCreateCourseGroup($course, $propertiesResult)
         'semester' => $propertiesResult['semester'],
         'courseNumber' => $propertiesResult['courseNumber'],
         'courseOrder' => $propertiesResult['courseOrder'],
+        // 113 查询教务名单时必须使用课表返回的原始课序号，不能使用群编码中的三位规范值。
+        'rosterCourseOrder' => $propertiesResult['rosterCourseOrder'],
         'teacherId' => $propertiesResult['teacherId']
     ));
 }
