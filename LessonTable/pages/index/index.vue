@@ -217,7 +217,6 @@ import {
 	shouldAttemptComWxAutoAuth
 } from "@/utils/auth.js"
 import {
-	DATA_SOURCE_CACHE,
 	getPreferredDataSource,
 	normalizeDataSourcePreference
 } from "@/utils/dataSource.js"
@@ -231,6 +230,8 @@ defineOptions({
 
 const CUSTOM_COURSE_STORE_KEY = 'CustomCoursesByUser'
 const CUSTOM_COURSE_META_KEY = 'CustomCourseMetaByUser'
+const DATA_SOURCE_MIGRATION_NOTICE_KEY = 'LessonSchedule.DataSourceAutomaticMigration.v1'
+let legacyManualCacheDetected = false
 const debugState = ref(getAdminDebugState())
 var ScheduleData = ref({
 	UserID: '',
@@ -2192,12 +2193,36 @@ const validateServerSession = async () => {
 
 const ensureDataSourcePreference = () => {
 	const savedSettings = uni.getStorageSync('scheduleSettings') || {}
+	const usedManualCache = savedSettings.dataSource === 'cache' || savedSettings.dataSourcePreference === 'cache'
 	const normalizedSettings = normalizeDataSourcePreference(savedSettings)
 	if (savedSettings.dataSource !== normalizedSettings.dataSource ||
 		savedSettings.dataSourcePreference !== normalizedSettings.dataSourcePreference) {
 		uni.setStorageSync('scheduleSettings', normalizedSettings)
 	}
+	if (usedManualCache && uni.getStorageSync(DATA_SOURCE_MIGRATION_NOTICE_KEY) !== '1') {
+		legacyManualCacheDetected = true
+	}
 	return normalizedSettings
+}
+
+const showDataSourceMigrationNotice = () => {
+	if (!legacyManualCacheDetected || uni.getStorageSync(DATA_SOURCE_MIGRATION_NOTICE_KEY) === '1') {
+		return Promise.resolve()
+	}
+	legacyManualCacheDetected = false
+	return new Promise((resolve) => {
+		uni.showModal({
+			title: '课表数据模式已更新',
+			content: '原手动缓存模式已取消。课表将于白天自动获取最新数据，22:00至次日06:00自动使用缓存，白天会恢复在线数据。',
+			showCancel: false,
+			confirmText: '知道了',
+			success: () => {
+				uni.setStorageSync(DATA_SOURCE_MIGRATION_NOTICE_KEY, '1')
+				resolve()
+			},
+			fail: () => resolve()
+		})
+	})
 }
 
 const loadScheduleBySource = (options = {}) => {
@@ -2215,7 +2240,7 @@ const loadScheduleBySource = (options = {}) => {
 
 	if (cachedScheduleData && typeof cachedScheduleData === 'object' && Object.keys(cachedScheduleData).length > 0 &&
 		cachedScheduleData.UserID == ScheduleData.value.UserID) {
-		if (cacheOnly || getPreferredDataSource(userSettings) === DATA_SOURCE_CACHE) {
+		if (cacheOnly) {
 			ScheduleData.value = {
 				...ScheduleData.value,
 				...cachedScheduleData
@@ -2290,6 +2315,7 @@ const bootstrapIndexPage = async (routeParams = {}) => {
 	updateLayoutMetrics();
 	closeBottomSheet();
 	ensureDataSourcePreference()
+	await showDataSourceMigrationNotice()
 	const activeDebugState = getAdminDebugState()
 	if (activeDebugState && activeDebugState.expiresAt * 1000 <= Date.now()) {
 		exitAdminDebugSession()
@@ -2426,6 +2452,7 @@ onShow(() => {
 	updateLayoutMetrics();
 	closeBottomSheet();
 	clearArmedEmptySlot()
+	showFeatureNoticeOnce(600)
 
 	// 重新加载设置
 	loadSettings();
@@ -2474,50 +2501,9 @@ const handleSettingsUpdated = (newSettings) => {
 	}
 }
 
-const handleDataSourceUpdated = (dataSource) => {
-	console.log('数据源更新:', dataSource);
-	if (dataSource === 'cache') {
-		lastAutomaticNightState = null
-		// 切换到缓存数据
-		const cachedData = uni.getStorageSync('ScheduleData');
-		if (cachedData && cachedData.UserID === ScheduleData.value.UserID) {
-			ScheduleData.value = {
-				...ScheduleData.value,
-				...cachedData
-			};
-			// 切换到缓存数据时同样强制日期走服务端确认值（semesterMark 不存在的历史手动日期清除）
-			if (cachedData.semesterMark) {
-				ScheduleData.value.startDate = cachedData.startDate || '';
-				ScheduleData.value.semesterMark = cachedData.semesterMark;
-			} else {
-				ScheduleData.value.startDate = '';
-				ScheduleData.value.semesterMark = '';
-			}
-			const cachedOnline = extractOnlineCoursesFromCache(cachedData)
-			mergeCourseData(cachedOnline, getLocalCoursesByUser(ScheduleData.value.UserID))
-			syncWeekToToday(true);
-			// 切换到缓存数据也异步拉取服务端开学日期
-			refreshSemesterDateFromServer();
-		}
-	} else if (dataSource === 'online') {
-		lastAutomaticNightState = isEnterpriseServiceOfflineTime()
-		// 切换到在线数据，重新获取
-		GetScheduleData();
-	}
-}
-
 const handleCustomCoursesChanged = () => {
 	refreshLocalCourses()
 	persistScheduleCache()
-}
-
-const handleUpdateCourseData = async () => {
-	uni.showToast({
-		title: '正在刷新缓存...',
-		icon: 'loading',
-		duration: 1200
-	})
-	await GetScheduleData()
 }
 
 const handleWindowResize = () => {
@@ -2531,11 +2517,7 @@ let automaticDataSourceTimer = null
 let lastAutomaticNightState = null
 
 const syncAutomaticDataSource = () => {
-	const userSettings = ensureDataSourcePreference()
-	if (getPreferredDataSource(userSettings) === DATA_SOURCE_CACHE) {
-		lastAutomaticNightState = null
-		return
-	}
+	ensureDataSourcePreference()
 
 	const currentNightState = isEnterpriseServiceOfflineTime()
 	if (lastAutomaticNightState === null) {
@@ -2561,10 +2543,9 @@ const handleVisibilityChange = () => {
 // 监听设置更新事件
 onMounted(() => {
 	updateLayoutMetrics();
+	showFeatureNoticeOnce(2600)
 	uni.$on('settingsUpdated', handleSettingsUpdated);
-	uni.$on('dataSourceUpdated', handleDataSourceUpdated);
 	uni.$on('customCoursesChanged', handleCustomCoursesChanged);
-	uni.$on('updateCourseData', handleUpdateCourseData);
 	lastAutomaticNightState = isEnterpriseServiceOfflineTime()
 	automaticDataSourceTimer = setInterval(syncAutomaticDataSource, 30000)
 
@@ -2580,9 +2561,7 @@ onUnmounted(() => {
 	clearSheetCloseTimer()
 	clearVisualEffects()
 	uni.$off('settingsUpdated', handleSettingsUpdated);
-	uni.$off('dataSourceUpdated', handleDataSourceUpdated);
 	uni.$off('customCoursesChanged', handleCustomCoursesChanged);
-	uni.$off('updateCourseData', handleUpdateCourseData);
 	if (automaticDataSourceTimer) {
 		clearInterval(automaticDataSourceTimer)
 		automaticDataSourceTimer = null

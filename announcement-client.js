@@ -45,6 +45,7 @@
   const postJson = async (url, body) => {
     const response = await fetch(url, {
       method: 'POST',
+      cache: 'no-store',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     })

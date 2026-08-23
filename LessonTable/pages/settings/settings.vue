@@ -113,35 +113,12 @@
 
 			<view class="group-card">
 				<view class="group-title">课表数据</view>
-				<view class="row column-row">
+				<view class="row">
 					<view class="row-main">
-						<view class="row-title">数据来源</view>
-						<view class="row-subtitle">在线模式请求最新可用课表；缓存模式读取本设备已保存的数据。</view>
+						<view class="row-title">自动数据模式</view>
+						<view class="row-subtitle">白天自动获取最新课表；22:00至次日06:00自动使用缓存，白天恢复在线数据。</view>
 					</view>
-					<view class="segment">
-						<view
-							class="segment-item"
-							:class="{ active: effectiveDataSource === 'online' }"
-							@click="switchDataSource('online')"
-						>
-							在线数据
-						</view>
-						<view
-							class="segment-item"
-							:class="{ active: effectiveDataSource === 'cache' }"
-							@click="switchDataSource('cache')"
-						>
-							{{ nightForcedCache ? '缓存数据（夜间强制使用）' : '缓存数据' }}
-						</view>
-					</view>
-					<view v-if="nightForcedCache" class="night-note">22:00至次日06:00自动使用本机缓存，白天将自动恢复在线数据。</view>
-				</view>
-				<view v-if="effectiveDataSource === 'cache'" class="row row-link" :class="{ disabled: isNightTime() }" @click="onUpdateCacheClick">
-					<view class="row-main">
-						<view class="row-title">更新缓存数据</view>
-						<view class="row-subtitle">重新获取课表并覆盖本设备上的课表缓存。</view>
-					</view>
-					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
+					<view class="row-value">{{ effectiveDataSourceLabel }}</view>
 				</view>
 				<!-- 手动开学日期已取消（日期一律由后端校历服务下发，禁止用户修改）
 				<picker v-if="settings.dataSource === 'cache'" mode="date" :value="settings.startDate" @change="onStartDateChange">
@@ -227,10 +204,8 @@ import {
 } from '@/utils/auth.js'
 import {
 	getEffectiveDataSource,
-	getPreferredDataSource,
 	isNightForcedCache,
-	normalizeDataSourcePreference,
-	setDataSourcePreference
+	normalizeDataSourcePreference
 } from '@/utils/dataSource.js'
 
 const defaultSettings = {
@@ -287,7 +262,6 @@ const authenticationDescription = computed(() => {
 	return '通过教务账号验证身份，登录信息仅保存在当前设备。'
 })
 
-const preferredDataSource = computed(() => getPreferredDataSource(settings.value))
 const effectiveDataSource = computed(() => getEffectiveDataSource(settings.value, isNightTime()))
 const nightForcedCache = computed(() => isNightForcedCache(settings.value, isNightTime()))
 const effectiveDataSourceLabel = computed(() => effectiveDataSource.value === 'online' ? '在线数据' : '缓存数据')
@@ -445,60 +419,6 @@ const isNightTime = () => {
 	timeTick.value
 	const beijingHour = new Date(Date.now() + 8 * 3600 * 1000).getUTCHours()
 	return beijingHour >= 22 || beijingHour < 6
-}
-
-const switchDataSource = (source) => {
-	if (source === 'online' && isNightTime()) {
-		uni.showToast({
-			title: '当前时间段在线数据不可用，请在白天操作',
-			icon: 'none'
-		})
-		return
-	}
-	if (preferredDataSource.value === source) return
-	if (source === 'cache') {
-		uni.showModal({
-			title: '切换数据源',
-			content: '缓存数据可能不是最新课表，确认切换到缓存数据吗？',
-			success: (res) => {
-				if (!res.confirm) return
-				settings.value = setDataSourcePreference(settings.value, source)
-				saveSettings()
-				uni.$emit('dataSourceUpdated', source)
-			}
-		})
-		return
-	}
-
-	settings.value = setDataSourcePreference(settings.value, source)
-	saveSettings()
-	uni.$emit('dataSourceUpdated', source)
-}
-
-const onUpdateCacheClick = () => {
-	if (isNightTime()) {
-		uni.showToast({
-			title: '夜间时段无法更新缓存，请在白天操作',
-			icon: 'none'
-		})
-		return
-	}
-	updateCourseData()
-}
-
-const updateCourseData = () => {
-	uni.showModal({
-		title: '更新缓存',
-		content: '确认在白天拉取在线课表并刷新缓存吗？',
-		success: (res) => {
-			if (!res.confirm) return
-			uni.$emit('updateCourseData')
-			uni.showToast({
-				title: '已发起刷新',
-				icon: 'none'
-			})
-		}
-	})
 }
 
 const clearCustomCourses = () => {
