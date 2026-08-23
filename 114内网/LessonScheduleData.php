@@ -1,8 +1,9 @@
 <?php
 date_default_timezone_set('PRC');
-ini_set('display_errors', 1);            //错误信息
-ini_set('display_startup_errors', 1);    //php启动错误信息
-error_reporting(-1);                    //打印出所有的 错误信息
+// 接口必须始终返回纯 JSON；字段缺失等告警写入服务日志，不能混入响应体。
+ini_set('display_errors', 0);
+ini_set('display_startup_errors', 0);
+error_reporting(E_ALL);
 header("Content-Type: application/json;charset=utf-8");
 
 //接受参数
@@ -91,8 +92,9 @@ function UndergraduateTeacherDataProcessing($ScheduleData, $UserID)
             'credit' => $course['xf'],
             'week' => $course['skxq'],
             'totalHours' => $course['xs'],
-            'category' => $course['kcsxmc'],
-            'CourseAttribute' => $course['xdfsmc'],
+            // 个别教务数据不返回课程属性，不能因此破坏整份 JSON 课表。
+            'category' => isset($course['kcsxmc']) ? $course['kcsxmc'] : '',
+            'CourseAttribute' => isset($course['xdfsmc']) ? $course['xdfsmc'] : '',
             'teacher' => $course['jsm'],
             'teacherUserID' => $course['jsh'],
             'section' => $course['skjc'],

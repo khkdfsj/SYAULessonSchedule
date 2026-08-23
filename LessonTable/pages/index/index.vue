@@ -2086,6 +2086,18 @@ const GetScheduleData = async () => {
 		}
 	} catch (error) {
 		console.error('获取课表数据失败:', error);
+		if (error?.data?.staleCacheRejected) {
+			// 服务端已判定本机/数据库中的课表属于旧学期，立即停止展示旧课程。
+			mergeCourseData([], getLocalCoursesByUser(ScheduleData.value.UserID))
+			persistScheduleCache()
+			uni.showModal({
+				title: '旧学期课表已清除',
+				content: '暂时未能获取本学期课表，请稍后重新进入。系统恢复后会自动同步最新数据。',
+				showCancel: false,
+				confirmText: '知道了'
+			})
+			return
+		}
 		uni.showToast({
 			title: '加载课表失败',
 			icon: 'error',

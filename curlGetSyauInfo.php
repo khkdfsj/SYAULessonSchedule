@@ -48,6 +48,22 @@ function logError($message, $userID = null)
     sendResponse(500, '操作失败', ['debug' => $message]);
 }
 
+function recordError($message, $userID = null)
+{
+    global $conn;
+    if (!$conn instanceof mysqli) {
+        return;
+    }
+
+    $stmt = $conn->prepare("INSERT INTO error_logs (message, user_id) VALUES (?, ?)");
+    if (!$stmt) {
+        return;
+    }
+    $stmt->bind_param("ss", $message, $userID);
+    $stmt->execute();
+    $stmt->close();
+}
+
 /**********************
  * 工具函数
  **********************/
@@ -102,6 +118,14 @@ function fetchOnlineSchedule($userID)
     }
 
     $response = json_decode($body, true);
+    if (!is_array($response)) {
+        // 兼容上游 PHP 将 Notice 错误地写在 JSON 前面的历史行为。
+        // 只截取明确的课表 JSON 起点，避免单个可选字段缺失导致整份新课表回退旧缓存。
+        $jsonStart = strpos((string) $body, '{"code"');
+        if ($jsonStart !== false) {
+            $response = json_decode(substr($body, $jsonStart), true);
+        }
+    }
     $responseCode = is_array($response) && isset($response['code']) ? (int) $response['code'] : null;
     if ($responseCode !== null && !in_array($responseCode, [0, 200], true)) {
         return [false, [], isset($response['msg']) ? (string) $response['msg'] : 'schedule service error'];
@@ -133,10 +157,9 @@ function registerUser($conn, $userID)
     return $stmt->execute();
 }
 
-function getScheduleCache($conn, $userID)
+function getScheduleCacheRecord($conn, $userID)
 {
-
-    $sql = "SELECT ScheduleData FROM ScheduleData  WHERE UserID = ? 
+    $sql = "SELECT ScheduleData, UpdateTime FROM ScheduleData WHERE UserID = ?
             ORDER BY UpdateTime DESC LIMIT 1";
     $stmt = $conn->prepare($sql);
 
@@ -148,7 +171,76 @@ function getScheduleCache($conn, $userID)
     $stmt->bind_param("s", $userID);
     $stmt->execute();
     $result = $stmt->get_result();
-    return $result->num_rows > 0 ? json_decode($result->fetch_assoc()['ScheduleData'], true) : null;
+    if ($result->num_rows === 0) {
+        return null;
+    }
+
+    $row = $result->fetch_assoc();
+    $courses = json_decode($row['ScheduleData'], true);
+    return [
+        'courses' => is_array($courses) ? array_values($courses) : [],
+        'updated_at' => (string) $row['UpdateTime']
+    ];
+}
+
+function getScheduleCache($conn, $userID)
+{
+    $record = getScheduleCacheRecord($conn, $userID);
+    return $record === null ? null : $record['courses'];
+}
+
+function getExpectedPlanPrefix($startDate)
+{
+    if (!preg_match('/^(\d{4})-(\d{2})-\d{2}$/', (string) $startDate, $matches)) {
+        return '';
+    }
+
+    $year = (int) $matches[1];
+    $month = (int) $matches[2];
+    return $month >= 8
+        ? $year . '-' . ($year + 1) . '-1'
+        : ($year - 1) . '-' . $year . '-2';
+}
+
+function isCurrentSemesterCache($record, $userID)
+{
+    if (!is_array($record) || !isset($record['courses'], $record['updated_at'])) {
+        return false;
+    }
+
+    $calendar = fetchCalendarInfo();
+    if ($calendar === null) {
+        // 校历服务临时不可用时不扩大故障范围，仍允许使用已有缓存。
+        return true;
+    }
+
+    // 教务处通常会在开学前提前发布新课表，缓存有效期从开学日前 30 天开始计算。
+    $semesterStart = strtotime($calendar['start_date'] . ' 00:00:00 -30 days');
+    $cacheTime = strtotime($record['updated_at']);
+    if ($semesterStart !== false && ($cacheTime === false || $cacheTime < $semesterStart)) {
+        return false;
+    }
+
+    $identityDigit = substr((string) $userID, 4, 1);
+    if (!in_array($identityDigit, ['1', '5', '6'], true)) {
+        return true;
+    }
+
+    $expectedPrefix = getExpectedPlanPrefix($calendar['start_date']);
+    $foundPlan = false;
+    foreach ($record['courses'] as $course) {
+        $planNumber = trim((string) ($course['planNumber'] ?? ''));
+        if ($planNumber === '') {
+            continue;
+        }
+        $foundPlan = true;
+        if ($expectedPrefix !== '' && strpos($planNumber, $expectedPrefix) === 0) {
+            return true;
+        }
+    }
+
+    // 新生成的空课表或暂不带教学计划号的数据，以本学期内的更新时间为准。
+    return !$foundPlan;
 }
 
 function updateScheduleCache($conn, $userID, $courseInfo)
@@ -232,33 +324,38 @@ function fetchCalendarInfo(): ?array
 function handleExistingUser($conn, $userID)
 {
     if (isQuietTime()) {
-        $cache = getScheduleCache($conn, $userID);
-        if ($cache !== null) {
-            sendCourseResponse($userID, $cache, '非api在线时间，数据库缓存');
+        $cacheRecord = getScheduleCacheRecord($conn, $userID);
+        if (isCurrentSemesterCache($cacheRecord, $userID)) {
+            sendCourseResponse($userID, $cacheRecord['courses'], '非api在线时间，数据库缓存');
         }
 
-        sendResponse(503, '当前为夜间缓存时段，暂无可用课表缓存，请在白天重新进入', [
+        sendResponse(503, '当前为夜间缓存时段，暂无本学期可用课表缓存，请在白天重新进入', [
             'UserID' => $userID,
             'courseInfo' => [],
-            'source' => '非api在线时间，无可用缓存'
+            'source' => '非api在线时间，无本学期可用缓存',
+            'staleCacheRejected' => $cacheRecord !== null,
+            'appVersion' => APP_VERSION
         ]);
     }
 
-    list($ok, $courseInfo) = fetchOnlineSchedule($userID);
+    list($ok, $courseInfo, $failureReason) = fetchOnlineSchedule($userID);
     if ($ok) {
         updateScheduleCache($conn, $userID, $courseInfo);
         sendCourseResponse($userID, $courseInfo, '学校实时数据');
     }
 
-    $cache = getScheduleCache($conn, $userID);
-    if ($cache !== null) {
-        sendCourseResponse($userID, $cache, '实时请求失败，使用数据库缓存');
+    recordError('学校实时课表请求失败：' . $failureReason, $userID);
+    $cacheRecord = getScheduleCacheRecord($conn, $userID);
+    if (isCurrentSemesterCache($cacheRecord, $userID)) {
+        sendCourseResponse($userID, $cacheRecord['courses'], '实时请求失败，使用本学期数据库缓存');
     }
 
-    sendResponse(503, '课表服务暂不可用，请稍后重试', [
+    sendResponse(503, $cacheRecord === null ? '课表服务暂不可用，请稍后重试' : '旧学期课表已停止显示，请稍后重试获取本学期课表', [
         'UserID' => $userID,
         'courseInfo' => [],
-        'source' => '学校实时接口不可用'
+        'source' => '学校实时接口不可用',
+        'staleCacheRejected' => $cacheRecord !== null,
+        'appVersion' => APP_VERSION
     ]);
 }
 
@@ -276,16 +373,18 @@ function handleNewUser($conn, $userID)
         sendResponse(500, '用户注册失败');
     }
 
-    list($ok, $courseInfo) = fetchOnlineSchedule($userID);
+    list($ok, $courseInfo, $failureReason) = fetchOnlineSchedule($userID);
     if ($ok) {
         updateScheduleCache($conn, $userID, $courseInfo);
         sendCourseResponse($userID, $courseInfo, '学校实时数据');
     }
 
+    recordError('学校实时课表请求失败：' . $failureReason, $userID);
     sendResponse(503, '课表服务暂不可用，请稍后重试', [
         'UserID' => $userID,
         'courseInfo' => [],
-        'source' => '学校实时接口不可用'
+        'source' => '学校实时接口不可用',
+        'appVersion' => APP_VERSION
     ]);
 }
 

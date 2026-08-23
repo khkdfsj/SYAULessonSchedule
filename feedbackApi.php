@@ -6,6 +6,7 @@ error_reporting(E_ALL);
 header('Content-Type: application/json;charset=utf-8');
 
 require_once __DIR__ . '/auth_session.php';
+require_once __DIR__ . '/feedback_notification.php';
 
 define('DB_HOST', '127.0.0.1');
 define('DB_PORT', 3306);
@@ -643,6 +644,15 @@ try {
         $threadId = (int) $conn->insert_id;
         $stmt->close();
 
+        sendFeedbackAdminNotification(
+            $conn,
+            'thread_created',
+            $threadId,
+            $context['user_id'],
+            $title,
+            $content
+        );
+
         sendJson(200, '反馈提交成功', [
             'thread_id' => $threadId
         ]);
@@ -701,6 +711,17 @@ try {
 
             refreshThreadCounters($conn, $threadId);
             $conn->commit();
+
+            if (!$context['is_admin']) {
+                sendFeedbackAdminNotification(
+                    $conn,
+                    'user_replied',
+                    $threadId,
+                    $context['user_id'],
+                    $thread['title'],
+                    $content
+                );
+            }
 
             sendJson(200, '回复成功', [
                 'reply_id' => $replyId,
