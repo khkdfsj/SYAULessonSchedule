@@ -17,6 +17,9 @@ define('APP_VERSION', '0.5.1');
 // 学校课表接口夜间不可用：22:00-06:00 强制读取数据库缓存，不访问上游。
 define('QUIET_START', '22:00');
 define('QUIET_END', '06:00');
+// 白天短时复用刚刚取得的本学期数据，避免同一用户反复进入时重复冲击学校网关。
+define('DAY_CACHE_TTL_SECONDS', 180);
+define('UPSTREAM_CIRCUIT_FILE', '/tmp/lesson_schedule_upstream_circuit.json');
 
 // 沿用原项目方案：学校公网网关仅放行微信/企业微信浏览器环境，再转发到 114 课表服务。
 define('API_URL', 'https://syauinfo.syau.edu.cn/LessonSchedule/LessonScheduleData.php');
@@ -110,10 +113,89 @@ function postJsonUrl($url, $data, $timeout = 8)
     return [$body, $httpStatus, $error];
 }
 
+function updateUpstreamCircuit($callback)
+{
+    $handle = @fopen(UPSTREAM_CIRCUIT_FILE, 'c+');
+    if ($handle === false || !flock($handle, LOCK_EX)) {
+        if (is_resource($handle)) {
+            fclose($handle);
+        }
+        return null;
+    }
+
+    rewind($handle);
+    $raw = stream_get_contents($handle);
+    $state = json_decode((string) $raw, true);
+    if (!is_array($state)) {
+        $state = ['failures' => 0, 'open_until' => 0, 'probe_until' => 0];
+    }
+
+    $result = $callback($state);
+    rewind($handle);
+    ftruncate($handle, 0);
+    fwrite($handle, json_encode($state, JSON_UNESCAPED_UNICODE));
+    fflush($handle);
+    flock($handle, LOCK_UN);
+    fclose($handle);
+    return $result;
+}
+
+function acquireUpstreamPermit()
+{
+    $result = updateUpstreamCircuit(function (&$state) {
+        $now = time();
+        $openUntil = (int) ($state['open_until'] ?? 0);
+        $probeUntil = (int) ($state['probe_until'] ?? 0);
+        $failures = (int) ($state['failures'] ?? 0);
+
+        if ($openUntil > $now) {
+            return [false, '学校网关短时保护中'];
+        }
+        if ($failures > 0 && $probeUntil > $now) {
+            return [false, '学校网关恢复探测中'];
+        }
+        if ($failures > 0) {
+            // 熔断到期后只放一个探测请求，避免所有 PHP 进程同时重试。
+            $state['probe_until'] = $now + 12;
+        }
+        return [true, ''];
+    });
+
+    return is_array($result) ? $result : [true, ''];
+}
+
+function markUpstreamFailure()
+{
+    updateUpstreamCircuit(function (&$state) {
+        $failures = min(5, max(0, (int) ($state['failures'] ?? 0)) + 1);
+        $delay = min(300, 30 * (2 ** ($failures - 1)));
+        $state = [
+            'failures' => $failures,
+            'open_until' => time() + $delay,
+            'probe_until' => 0
+        ];
+        return true;
+    });
+}
+
+function markUpstreamHealthy()
+{
+    updateUpstreamCircuit(function (&$state) {
+        $state = ['failures' => 0, 'open_until' => 0, 'probe_until' => 0];
+        return true;
+    });
+}
+
 function fetchOnlineSchedule($userID)
 {
+    list($permitted, $circuitReason) = acquireUpstreamPermit();
+    if (!$permitted) {
+        return [false, [], $circuitReason];
+    }
+
     list($body, $httpStatus, $error) = postJsonUrl(API_URL, ['UserID' => $userID]);
     if ($body === false || $httpStatus !== 200) {
+        markUpstreamFailure();
         return [false, [], $error ?: ('HTTP ' . $httpStatus)];
     }
 
@@ -128,14 +210,19 @@ function fetchOnlineSchedule($userID)
     }
     $responseCode = is_array($response) && isset($response['code']) ? (int) $response['code'] : null;
     if ($responseCode !== null && !in_array($responseCode, [0, 200], true)) {
+        if ($responseCode >= 500) {
+            markUpstreamFailure();
+        }
         return [false, [], isset($response['msg']) ? (string) $response['msg'] : 'schedule service error'];
     }
 
     // 教务接口对“当前无课程”的用户不一定返回 code，但会明确返回空 courseInfo。
     if (!is_array($response) || !isset($response['courseInfo']) || !is_array($response['courseInfo'])) {
+        markUpstreamFailure();
         return [false, [], 'invalid schedule response'];
     }
 
+    markUpstreamHealthy();
     return [true, array_values($response['courseInfo']), ''];
 }
 
@@ -243,6 +330,16 @@ function isCurrentSemesterCache($record, $userID)
     return !$foundPlan;
 }
 
+function isFreshDayCache($record, $userID)
+{
+    if (!isCurrentSemesterCache($record, $userID)) {
+        return false;
+    }
+    $cacheTime = strtotime((string) $record['updated_at']);
+    return $cacheTime !== false && (time() - $cacheTime) >= 0
+        && (time() - $cacheTime) <= DAY_CACHE_TTL_SECONDS;
+}
+
 function updateScheduleCache($conn, $userID, $courseInfo)
 {
     $jsonData = json_encode(array_values($courseInfo), JSON_UNESCAPED_UNICODE);
@@ -338,13 +435,20 @@ function handleExistingUser($conn, $userID)
         ]);
     }
 
+    $cacheRecord = getScheduleCacheRecord($conn, $userID);
+    if (isFreshDayCache($cacheRecord, $userID)) {
+        sendCourseResponse($userID, $cacheRecord['courses'], '学校数据短时缓存');
+    }
+
     list($ok, $courseInfo, $failureReason) = fetchOnlineSchedule($userID);
     if ($ok) {
         updateScheduleCache($conn, $userID, $courseInfo);
         sendCourseResponse($userID, $courseInfo, '学校实时数据');
     }
 
-    recordError('学校实时课表请求失败：' . $failureReason, $userID);
+    if (strpos($failureReason, '学校网关') !== 0) {
+        recordError('学校实时课表请求失败：' . $failureReason, $userID);
+    }
     $cacheRecord = getScheduleCacheRecord($conn, $userID);
     if (isCurrentSemesterCache($cacheRecord, $userID)) {
         sendCourseResponse($userID, $cacheRecord['courses'], '实时请求失败，使用本学期数据库缓存');
@@ -379,7 +483,9 @@ function handleNewUser($conn, $userID)
         sendCourseResponse($userID, $courseInfo, '学校实时数据');
     }
 
-    recordError('学校实时课表请求失败：' . $failureReason, $userID);
+    if (strpos($failureReason, '学校网关') !== 0) {
+        recordError('学校实时课表请求失败：' . $failureReason, $userID);
+    }
     sendResponse(503, '课表服务暂不可用，请稍后重试', [
         'UserID' => $userID,
         'courseInfo' => [],
