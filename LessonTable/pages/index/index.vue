@@ -3048,7 +3048,7 @@ onUnmounted(() => {
 	position: fixed;
 	inset: 0;
 	background: rgba(15, 23, 42, 0.34);
-	z-index: 900;
+	z-index: 2199;
 	opacity: 0;
 	transition: opacity 0.24s ease;
 }
@@ -3068,7 +3068,7 @@ onUnmounted(() => {
 	bottom: 0;
 	display: flex;
 	justify-content: center;
-	z-index: 901;
+	z-index: 2200;
 	transform: translateY(100%);
 	transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 	pointer-events: none;
