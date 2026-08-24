@@ -106,6 +106,31 @@ function normalizeAdminDisplayName($value)
     return trimText($name, 30);
 }
 
+function textLength($value)
+{
+    $text = (string) $value;
+    return function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
+}
+
+function hasCompletedFeedbackTemplate($type, $content)
+{
+    $sections = $type === 'issue'
+        ? ['异常现象', '发生时间', '操作过程', '已尝试方法', '设备环境']
+        : ['目前的问题', '希望如何改进', '预期效果'];
+
+    foreach ($sections as $section) {
+        $pattern = '/【' . preg_quote($section, '/') . '】\s*(.*?)(?=【|$)/us';
+        if (!preg_match($pattern, (string) $content, $matches)) {
+            return false;
+        }
+        $answer = trim((string) ($matches[1] ?? ''));
+        if ($answer === '' || strpos($answer, '[请填写') !== false || textLength($answer) < 4) {
+            return false;
+        }
+    }
+    return true;
+}
+
 function getAdminProfile($conn, $userId)
 {
     if (!$conn instanceof mysqli) {
@@ -840,6 +865,12 @@ try {
         $templateKey = trimText($input['template_key'] ?? '', 64);
         if ($title === '' || $content === '') {
             sendJson(400, '标题和内容不能为空', [], 400);
+        }
+        if (textLength($title) < 6) {
+            sendJson(400, '请用不少于6个字说明具体问题', [], 400);
+        }
+        if ($templateKey !== $type . '_default' || !hasCompletedFeedbackTemplate($type, $content)) {
+            sendJson(400, '请按填写模板补充完整信息后再提交', [], 400);
         }
 
         $visibility = $type === 'issue' ? 'private' : 'public';
