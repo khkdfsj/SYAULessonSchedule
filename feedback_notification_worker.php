@@ -9,6 +9,11 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
+$lockHandle = fopen('/tmp/lesson_schedule_feedback_notification_worker.lock', 'c');
+if (!$lockHandle || !flock($lockHandle, LOCK_EX | LOCK_NB)) {
+    exit(0);
+}
+
 $hour = (int) date('G');
 if ($hour >= 22 || $hour < 6) {
     exit(0);
@@ -33,9 +38,15 @@ if ($conn->connect_errno) {
 }
 $conn->set_charset('utf8mb4');
 
+if (!ensureFeedbackNotificationTable($conn)) {
+    $conn->close();
+    exit(1);
+}
+
 $result = $conn->query(
-    'SELECT l.id, l.event_key, l.thread_id, l.actor_user_id, l.recipient_user_id, l.retry_count,
-            COALESCE(t.title, \'课表反馈\') AS thread_title
+    'SELECT l.id, l.notification_key, l.event_key, l.thread_id, l.reply_id, l.actor_user_id,
+            l.recipient_user_id, l.recipient_type, l.thread_title, l.message_content, l.retry_count,
+            COALESCE(NULLIF(l.thread_title, \'\'), t.title, \'课表反馈\') AS resolved_thread_title
      FROM feedback_notification_logs l
      LEFT JOIN feedback_threads t ON t.id = l.thread_id
      WHERE l.success = 0
@@ -54,24 +65,33 @@ if (!$result) {
 while ($row = $result->fetch_assoc()) {
     $logId = (int) $row['id'];
     $retryCount = (int) $row['retry_count'];
-    $success = sendFeedbackAdminNotificationToUser(
-        $conn,
+    $notificationKey = trim((string) ($row['notification_key'] ?? ''));
+    if ($notificationKey === '') {
+        $notificationKey = 'legacy:' . $logId . ':' . $row['recipient_user_id'];
+    }
+    $content = trim((string) ($row['message_content'] ?? ''));
+    if ($content === '') {
+        $content = '你关注的反馈有新进展，请点击查看详情。';
+    }
+    $delivery = deliverFeedbackNotification(
+        $notificationKey,
         $row['event_key'],
         (int) $row['thread_id'],
         $row['actor_user_id'],
         $row['recipient_user_id'],
-        $row['thread_title'],
-        '此前通知发送失败，现已自动补发，请点击查看反馈详情。',
-        false
+        $row['recipient_type'] ?: 'admin',
+        $row['resolved_thread_title'],
+        $content
     );
 
-    if ($success) {
+    if ($delivery['success']) {
         $stmt = $conn->prepare(
             'UPDATE feedback_notification_logs
-             SET success = 1, detail = \'自动补发成功\', retry_count = retry_count + 1, next_retry_at = NULL
+             SET notification_key = COALESCE(notification_key, ?), success = 1, provider_agent_id = ?,
+                 detail = \'重试发送成功\', retry_count = retry_count + 1, next_retry_at = NULL
              WHERE id = ?'
         );
-        $stmt->bind_param('i', $logId);
+        $stmt->bind_param('ssi', $notificationKey, $delivery['agent_id'], $logId);
     } else {
         $nextRetryCount = $retryCount + 1;
         $delayMinutes = min(30, 2 ** min(5, $nextRetryCount));
@@ -88,3 +108,5 @@ while ($row = $result->fetch_assoc()) {
 }
 
 $conn->close();
+flock($lockHandle, LOCK_UN);
+fclose($lockHandle);

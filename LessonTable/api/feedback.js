@@ -88,7 +88,11 @@ export function getFeedbackThreadList(scope, options = {}) {
 			action: 'thread_list',
 			scope,
 			page: options.page || 1,
-			page_size: options.pageSize || 20
+			page_size: options.pageSize || 20,
+			status: options.status || '',
+			sort_by: options.sortBy || '',
+			sort_order: options.sortOrder || 'desc',
+			keyword: options.keyword || ''
 		})
 	})
 }
@@ -119,6 +123,16 @@ export function createFeedbackReply(payload) {
 		data: buildAuthPayload({
 			action: 'reply_create',
 			...payload
+		})
+	})
+}
+
+export function deleteFeedbackReply(replyId) {
+	return requestRaw({
+		url: FEEDBACK_API_URL,
+		data: buildAuthPayload({
+			action: 'reply_delete',
+			reply_id: replyId
 		})
 	})
 }

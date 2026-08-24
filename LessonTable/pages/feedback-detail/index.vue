@@ -69,12 +69,13 @@
 								<text class="reply-time">{{ reply.created_at }}</text>
 							</view>
 							<view class="reply-content">{{ reply.content }}</view>
-							<view
-								v-if="sessionInfo.is_admin && reply.role === 'admin'"
-								class="reply-admin-action"
-								@click="pinReply(reply)"
-							>
-								{{ reply.is_pinned ? '已置顶' : '设为置顶' }}
+							<view v-if="sessionInfo.is_admin && reply.role === 'admin'" class="reply-admin-actions">
+								<view class="reply-admin-action" @click="pinReply(reply)">
+									{{ reply.is_pinned ? '取消置顶' : '设为置顶' }}
+								</view>
+								<view v-if="reply.can_delete" class="reply-admin-action delete" @click="deleteReplyAction(reply)">
+									{{ deletingReplyId === reply.id ? '删除中...' : '删除回复' }}
+								</view>
 							</view>
 						</view>
 					</view>
@@ -113,6 +114,7 @@ import { computed, ref } from 'vue'
 import {
 	adminUpdateFeedback,
 	createFeedbackReply,
+	deleteFeedbackReply,
 	getFeedbackSession,
 	getFeedbackThreadDetail,
 	toggleFeedbackLike
@@ -139,6 +141,7 @@ const adminStatuses = [{
 const threadId = ref(0)
 const loading = ref(false)
 const submitting = ref(false)
+const deletingReplyId = ref(0)
 const errorText = ref('')
 const thread = ref(null)
 const replies = ref([])
@@ -275,6 +278,30 @@ const pinReply = async (reply) => {
 			icon: 'none'
 		})
 	}
+}
+
+const deleteReplyAction = (reply) => {
+	if (!reply?.can_delete || deletingReplyId.value) return
+	uni.showModal({
+		title: '删除回复',
+		content: '确定删除这条回复吗？删除后无法恢复。',
+		confirmText: '删除',
+		confirmColor: '#dc2626',
+		cancelText: '取消',
+		success: async (result) => {
+			if (!result.confirm) return
+			deletingReplyId.value = reply.id
+			try {
+				await deleteFeedbackReply(reply.id)
+				await loadDetail()
+				uni.showToast({ title: '回复已删除', icon: 'success' })
+			} catch (error) {
+				uni.showToast({ title: getErrorMessage(error, '删除失败'), icon: 'none' })
+			} finally {
+				deletingReplyId.value = 0
+			}
+		}
+	})
 }
 
 onLoad((query) => {
@@ -526,10 +553,21 @@ onShow(async () => {
 }
 
 .reply-admin-action {
-	margin-top: 16rpx;
 	display: inline-flex;
 	background: rgba(37, 99, 235, 0.12);
 	color: #1d4ed8;
+}
+
+.reply-admin-actions {
+	margin-top: 16rpx;
+	display: flex;
+	gap: 12rpx;
+	flex-wrap: wrap;
+}
+
+.reply-admin-action.delete {
+	background: rgba(220, 38, 38, 0.1);
+	color: #dc2626;
 }
 
 .composer-area {

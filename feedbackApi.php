@@ -446,9 +446,25 @@ function formatThreadRow($conn, $row, $context)
     ];
 }
 
-function fetchThreadList($conn, $scope, $context, $page, $pageSize)
+function fetchThreadList($conn, $scope, $context, $page, $pageSize, $filters = [])
 {
     $offset = max(0, ($page - 1) * $pageSize);
+    $status = trim((string) ($filters['status'] ?? ''));
+    if (!in_array($status, ['', 'open', 'replied', 'closed'], true)) {
+        $status = '';
+    }
+    $defaultSortBy = $scope === 'suggestions' ? 'last_reply_at' : 'created_at';
+    $sortBy = trim((string) ($filters['sort_by'] ?? ''));
+    if ($sortBy === '') {
+        $sortBy = $defaultSortBy;
+    }
+    if (!in_array($sortBy, ['created_at', 'updated_at', 'last_reply_at'], true)) {
+        $sortBy = 'created_at';
+    }
+    $sortOrder = strtolower(trim((string) ($filters['sort_order'] ?? 'desc'))) === 'asc' ? 'ASC' : 'DESC';
+    $keyword = trimText($filters['keyword'] ?? '', 80);
+    $keywordLike = '%' . $keyword . '%';
+    $orderSql = $sortBy . ' ' . $sortOrder . ', id ' . $sortOrder;
 
     if ($scope === 'my_issues') {
         requireAuth($context);
@@ -456,40 +472,48 @@ function fetchThreadList($conn, $scope, $context, $page, $pageSize)
             'SELECT id, type, user_id, title, content, template_key, status, visibility, reply_count, like_count, pinned_reply_id, created_at, updated_at, last_reply_at
              FROM feedback_threads
              WHERE type = \'issue\' AND user_id = ?
-             ORDER BY updated_at DESC, created_at DESC
+               AND (? = \'\' OR status = ?)
+               AND (? = \'\' OR title LIKE ? OR content LIKE ? OR user_id LIKE ? OR CAST(id AS CHAR) = ?)
+             ORDER BY ' . $orderSql . '
              LIMIT ? OFFSET ?'
         );
-        $stmt->bind_param('sii', $context['user_id'], $pageSize, $offset);
+        $stmt->bind_param('ssssssssii', $context['user_id'], $status, $status, $keyword, $keywordLike, $keywordLike, $keywordLike, $keyword, $pageSize, $offset);
     } elseif ($scope === 'admin_pending_issues') {
         requireAdmin($context);
+        $status = 'open';
         $stmt = $conn->prepare(
             'SELECT id, type, user_id, title, content, template_key, status, visibility, reply_count, like_count, pinned_reply_id, created_at, updated_at, last_reply_at
              FROM feedback_threads
              WHERE type = \'issue\' AND status = \'open\'
-             ORDER BY created_at DESC
+               AND (? = \'\' OR title LIKE ? OR content LIKE ? OR user_id LIKE ? OR CAST(id AS CHAR) = ?)
+             ORDER BY ' . $orderSql . '
              LIMIT ? OFFSET ?'
         );
-        $stmt->bind_param('ii', $pageSize, $offset);
+        $stmt->bind_param('sssssii', $keyword, $keywordLike, $keywordLike, $keywordLike, $keyword, $pageSize, $offset);
     } elseif ($scope === 'admin_all_issues') {
         requireAdmin($context);
         $stmt = $conn->prepare(
             'SELECT id, type, user_id, title, content, template_key, status, visibility, reply_count, like_count, pinned_reply_id, created_at, updated_at, last_reply_at
              FROM feedback_threads
              WHERE type = \'issue\'
-             ORDER BY updated_at DESC, created_at DESC
+               AND (? = \'\' OR status = ?)
+               AND (? = \'\' OR title LIKE ? OR content LIKE ? OR user_id LIKE ? OR CAST(id AS CHAR) = ?)
+             ORDER BY ' . $orderSql . '
              LIMIT ? OFFSET ?'
         );
-        $stmt->bind_param('ii', $pageSize, $offset);
+        $stmt->bind_param('sssssssii', $status, $status, $keyword, $keywordLike, $keywordLike, $keywordLike, $keyword, $pageSize, $offset);
     } elseif ($scope === 'admin_suggestions') {
         requireAdmin($context);
         $stmt = $conn->prepare(
             'SELECT id, type, user_id, title, content, template_key, status, visibility, reply_count, like_count, pinned_reply_id, created_at, updated_at, last_reply_at
              FROM feedback_threads
              WHERE type = \'suggestion\' AND visibility = \'public\'
-             ORDER BY last_reply_at DESC, created_at DESC
+               AND (? = \'\' OR status = ?)
+               AND (? = \'\' OR title LIKE ? OR content LIKE ? OR user_id LIKE ? OR CAST(id AS CHAR) = ?)
+             ORDER BY ' . $orderSql . '
              LIMIT ? OFFSET ?'
         );
-        $stmt->bind_param('ii', $pageSize, $offset);
+        $stmt->bind_param('sssssssii', $status, $status, $keyword, $keywordLike, $keywordLike, $keywordLike, $keyword, $pageSize, $offset);
     } else {
         $stmt = $conn->prepare(
             'SELECT id, type, user_id, title, content, template_key, status, visibility, reply_count, like_count, pinned_reply_id, created_at, updated_at, last_reply_at
@@ -544,7 +568,10 @@ function fetchReplyList($conn, $thread, $context)
             'content' => $row['content'],
             'is_pinned' => (int) $row['is_pinned'] === 1,
             'created_at' => $row['created_at'],
-            'display_name' => getAuthorLabel($row, $context, $thread['visibility'])
+            'display_name' => getAuthorLabel($row, $context, $thread['visibility']),
+            'can_delete' => ($context['is_admin'] ?? false)
+                && $row['role'] === 'admin'
+                && $row['user_id'] === ($context['user_id'] ?? '')
         ];
     }
     $stmt->close();
@@ -554,10 +581,12 @@ function fetchReplyList($conn, $thread, $context)
 
 function refreshThreadCounters($conn, $threadId)
 {
-    $replyStmt = $conn->prepare('SELECT COUNT(*) AS total FROM feedback_replies WHERE thread_id = ?');
+    $replyStmt = $conn->prepare('SELECT COUNT(*) AS total, MAX(created_at) AS last_reply_at FROM feedback_replies WHERE thread_id = ?');
     $replyStmt->bind_param('i', $threadId);
     $replyStmt->execute();
-    $replyCount = (int) $replyStmt->get_result()->fetch_assoc()['total'];
+    $replyRow = $replyStmt->get_result()->fetch_assoc();
+    $replyCount = (int) ($replyRow['total'] ?? 0);
+    $lastReplyAt = (string) ($replyRow['last_reply_at'] ?? '');
     $replyStmt->close();
 
     $likeStmt = $conn->prepare('SELECT COUNT(*) AS total FROM feedback_likes WHERE thread_id = ?');
@@ -568,10 +597,10 @@ function refreshThreadCounters($conn, $threadId)
 
     $updateStmt = $conn->prepare(
         'UPDATE feedback_threads
-         SET reply_count = ?, like_count = ?, updated_at = NOW(), last_reply_at = COALESCE(last_reply_at, NOW())
+         SET reply_count = ?, like_count = ?, updated_at = NOW(), last_reply_at = COALESCE(NULLIF(?, \'\'), created_at)
          WHERE id = ?'
     );
-    $updateStmt->bind_param('iii', $replyCount, $likeCount, $threadId);
+    $updateStmt->bind_param('iisi', $replyCount, $likeCount, $lastReplyAt, $threadId);
     $updateStmt->execute();
     $updateStmt->close();
 
@@ -815,7 +844,13 @@ try {
         $scope = trim((string) ($input['scope'] ?? 'suggestions'));
         $page = max(1, readInt($input['page'] ?? 1, 1));
         $pageSize = min(50, max(1, readInt($input['page_size'] ?? 20, 20)));
-        $threads = fetchThreadList($conn, $scope, $context, $page, $pageSize);
+        $filters = [
+            'status' => $input['status'] ?? '',
+            'sort_by' => $input['sort_by'] ?? '',
+            'sort_order' => $input['sort_order'] ?? 'desc',
+            'keyword' => $input['keyword'] ?? ''
+        ];
+        $threads = fetchThreadList($conn, $scope, $context, $page, $pageSize, $filters);
 
         sendJson(200, '反馈列表获取成功', [
             'scope' => $scope,
@@ -903,6 +938,7 @@ try {
             $conn,
             'thread_created',
             $threadId,
+            0,
             $context['user_id'],
             $title,
             $content
@@ -967,18 +1003,102 @@ try {
             refreshThreadCounters($conn, $threadId);
             $conn->commit();
 
-            sendFeedbackAdminNotification(
-                $conn,
-                $context['is_admin'] ? 'admin_replied' : 'user_replied',
-                $threadId,
-                $context['user_id'],
-                $thread['title'],
-                $content
-            );
+            if ($context['is_admin']) {
+                sendFeedbackUserNotification(
+                    $conn,
+                    $threadId,
+                    $replyId,
+                    $context['user_id'],
+                    $thread['user_id'],
+                    $thread['title'],
+                    $content
+                );
+            } else {
+                sendFeedbackAdminNotification(
+                    $conn,
+                    'user_replied',
+                    $threadId,
+                    $replyId,
+                    $context['user_id'],
+                    $thread['title'],
+                    $content
+                );
+            }
 
             sendJson(200, '回复成功', [
                 'reply_id' => $replyId,
                 'thread_id' => $threadId
+            ]);
+        } catch (Throwable $throwable) {
+            $conn->rollback();
+            throw $throwable;
+        }
+    }
+
+    if ($action === 'reply_delete') {
+        requireAdmin($context);
+
+        $replyId = readInt($input['reply_id'] ?? 0, 0);
+        if ($replyId <= 0) {
+            sendJson(400, '缺少 reply_id', [], 400);
+        }
+
+        $stmt = $conn->prepare(
+            'SELECT r.id, r.thread_id, r.user_id, r.role, r.is_pinned, t.type, t.status
+             FROM feedback_replies r
+             INNER JOIN feedback_threads t ON t.id = r.thread_id
+             WHERE r.id = ?
+             LIMIT 1'
+        );
+        $stmt->bind_param('i', $replyId);
+        $stmt->execute();
+        $reply = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$reply) {
+            sendJson(404, '回复不存在', [], 404);
+        }
+        if ($reply['role'] !== 'admin' || $reply['user_id'] !== $context['user_id']) {
+            sendJson(403, '只能删除自己发送的管理员回复', [], 403);
+        }
+
+        $threadId = (int) $reply['thread_id'];
+        $conn->begin_transaction();
+        try {
+            if ((int) $reply['is_pinned'] === 1) {
+                setPinnedReply($conn, $threadId, 0);
+            }
+
+            $deleteStmt = $conn->prepare('DELETE FROM feedback_replies WHERE id = ? AND user_id = ? AND role = \'admin\'');
+            $deleteStmt->bind_param('is', $replyId, $context['user_id']);
+            $deleteStmt->execute();
+            if ($deleteStmt->affected_rows !== 1) {
+                $deleteStmt->close();
+                throw new RuntimeException('回复删除失败');
+            }
+            $deleteStmt->close();
+
+            if ($reply['type'] === 'issue' && $reply['status'] === 'replied') {
+                $adminCountStmt = $conn->prepare('SELECT COUNT(*) AS total FROM feedback_replies WHERE thread_id = ? AND role = \'admin\'');
+                $adminCountStmt->bind_param('i', $threadId);
+                $adminCountStmt->execute();
+                $adminReplyCount = (int) ($adminCountStmt->get_result()->fetch_assoc()['total'] ?? 0);
+                $adminCountStmt->close();
+                if ($adminReplyCount === 0) {
+                    $openStmt = $conn->prepare('UPDATE feedback_threads SET status = \'open\' WHERE id = ?');
+                    $openStmt->bind_param('i', $threadId);
+                    $openStmt->execute();
+                    $openStmt->close();
+                }
+            }
+
+            $counters = refreshThreadCounters($conn, $threadId);
+            $conn->commit();
+
+            sendJson(200, '回复已删除', [
+                'reply_id' => $replyId,
+                'thread_id' => $threadId,
+                'reply_count' => $counters['reply_count']
             ]);
         } catch (Throwable $throwable) {
             $conn->rollback();
