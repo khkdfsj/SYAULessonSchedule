@@ -41,14 +41,21 @@
 				<view class="row" v-if="sessionInfo.is_admin">
 					<view class="row-main">
 						<view class="row-title">管理员权限</view>
-						<view class="row-subtitle">可使用反馈、课程讨论和公告管理功能。</view>
+						<view class="row-subtitle">可使用反馈、课程讨论、调试和公告管理功能。</view>
 					</view>
-					<view class="row-value">已启用</view>
+					<view class="row-value">{{ sessionInfo.is_super_admin ? '超级管理员' : '已启用' }}</view>
 				</view>
 				<view class="row row-link" v-if="sessionInfo.is_admin && !debugState" @click="goAdminDebug">
 					<view class="row-main">
 						<view class="row-title">用户调试</view>
 						<view class="row-subtitle">切换到指定学号，排查该用户的课表和互动功能。</view>
+					</view>
+					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
+				</view>
+				<view class="row row-link" v-if="sessionInfo.is_admin && !debugState" @click="goAdminMembers">
+					<view class="row-main">
+						<view class="row-title">管理员管理</view>
+						<view class="row-subtitle">设置管理员名称并查看管理员成员。</view>
 					</view>
 					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
 				</view>
@@ -239,6 +246,7 @@ const isClearingLocalData = ref(false)
 const sessionInfo = ref({
 	authenticated: false,
 	is_admin: false,
+	is_super_admin: false,
 	user_id: ''
 })
 const identitySummary = ref(getIdentitySummary())
@@ -418,6 +426,7 @@ const loadSession = async () => {
 		sessionInfo.value = {
 			authenticated: false,
 			is_admin: false,
+			is_super_admin: false,
 			user_id: ''
 		}
 	}
@@ -539,6 +548,12 @@ const goAdminCourseComments = () => {
 const goAdminDebug = () => {
 	uni.navigateTo({
 		url: '/pages/admin-debug/index'
+	})
+}
+
+const goAdminMembers = () => {
+	uni.navigateTo({
+		url: '/pages/admin-members/index'
 	})
 }
 

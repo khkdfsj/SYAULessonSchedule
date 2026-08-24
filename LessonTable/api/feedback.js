@@ -22,6 +22,55 @@ export function startAdminDebug(targetUserId) {
 	})
 }
 
+export function getAdminMemberList() {
+	return requestRaw({
+		url: FEEDBACK_API_URL,
+		data: buildAuthPayload({
+			action: 'admin_member_list'
+		})
+	})
+}
+
+export function updateAdminProfile(displayName) {
+	return requestRaw({
+		url: FEEDBACK_API_URL,
+		data: buildAuthPayload({
+			action: 'admin_profile_update',
+			display_name: displayName
+		})
+	})
+}
+
+export function addAdminMember(payload) {
+	return requestRaw({
+		url: FEEDBACK_API_URL,
+		data: buildAuthPayload({
+			action: 'admin_member_add',
+			...payload
+		})
+	})
+}
+
+export function updateAdminMember(payload) {
+	return requestRaw({
+		url: FEEDBACK_API_URL,
+		data: buildAuthPayload({
+			action: 'admin_member_update',
+			...payload
+		})
+	})
+}
+
+export function removeAdminMember(targetUserId) {
+	return requestRaw({
+		url: FEEDBACK_API_URL,
+		data: buildAuthPayload({
+			action: 'admin_member_remove',
+			target_user_id: targetUserId
+		})
+	})
+}
+
 export function getFeedbackThreadList(scope, options = {}) {
 	return requestRaw({
 		url: FEEDBACK_API_URL,

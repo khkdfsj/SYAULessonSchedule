@@ -91,6 +91,13 @@
 			}
 		},
 		{
+			"path" : "pages/admin-members/index",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
 			"path" : "pages/devlog/index",
 			"style" :
 			{

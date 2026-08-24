@@ -1,6 +1,8 @@
 CREATE TABLE IF NOT EXISTS `feedback_admins` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `user_id` varchar(20) NOT NULL,
+  `display_name` varchar(30) NOT NULL DEFAULT '',
+  `is_super_admin` tinyint(1) NOT NULL DEFAULT 0,
   `enabled` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -52,6 +54,29 @@ CREATE TABLE IF NOT EXISTS `feedback_likes` (
   KEY `idx_feedback_likes_user_created` (`user_id`,`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT INTO `feedback_admins` (`user_id`, `enabled`)
-VALUES ('2022140101', 1)
-ON DUPLICATE KEY UPDATE `enabled` = VALUES(`enabled`);
+CREATE TABLE IF NOT EXISTS `feedback_notification_logs` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `event_key` varchar(80) NOT NULL,
+  `thread_id` bigint unsigned NOT NULL,
+  `actor_user_id` varchar(20) NOT NULL,
+  `recipient_user_id` varchar(20) NOT NULL,
+  `provider_agent_id` varchar(20) DEFAULT NULL,
+  `success` tinyint(1) NOT NULL DEFAULT 0,
+  `detail` varchar(500) NOT NULL DEFAULT '',
+  `retry_count` int unsigned NOT NULL DEFAULT 0,
+  `next_retry_at` datetime DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_feedback_notification_thread` (`thread_id`,`created_at`),
+  KEY `idx_feedback_notification_success` (`success`,`created_at`),
+  KEY `idx_feedback_notification_retry` (`success`,`next_retry_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+INSERT INTO `feedback_admins` (`user_id`, `display_name`, `is_super_admin`, `enabled`)
+VALUES
+  ('2022140101', '', 0, 1),
+  ('2023195077', '东方世家', 1, 1)
+ON DUPLICATE KEY UPDATE
+  `display_name` = VALUES(`display_name`),
+  `is_super_admin` = VALUES(`is_super_admin`),
+  `enabled` = VALUES(`enabled`);

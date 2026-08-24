@@ -7,7 +7,6 @@ header('Content-Type: application/json;charset=utf-8');
 
 require_once __DIR__ . '/auth_session.php';
 
-const ADMIN_USER_ID = '2023195077';
 const PRIMARY_AGENT_ID = 1000060;
 const FALLBACK_AGENT_ID = 1000038;
 
@@ -68,8 +67,8 @@ $input = json_decode($rawBody, true);
 $eventKey = trim((string) ($input['event_key'] ?? ''));
 $threadId = (int) ($input['thread_id'] ?? 0);
 $recipient = trim((string) ($input['recipient_user_id'] ?? ''));
-if (!in_array($eventKey, ['thread_created', 'user_replied', 'notification_test'], true)
-    || $threadId <= 0 || $recipient !== ADMIN_USER_ID) {
+if (!in_array($eventKey, ['thread_created', 'user_replied', 'admin_replied', 'notification_test'], true)
+    || $threadId <= 0 || !preg_match('/^\d{8,12}$/', $recipient)) {
     respond(400, ['success' => false, 'message' => 'invalid payload']);
 }
 
@@ -82,7 +81,7 @@ if (strpos($url, 'https://debug.91nongye.cn/LessonSchedule/') !== 0) {
 
 $safeDescription = nl2br(htmlspecialchars($description, ENT_QUOTES, 'UTF-8'), false);
 $message = [
-    'touser' => ADMIN_USER_ID,
+    'touser' => $recipient,
     'msgtype' => 'textcard',
     'textcard' => [
         'title' => $title,

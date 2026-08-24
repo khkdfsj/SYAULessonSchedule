@@ -100,29 +100,53 @@ function readInt($value, $default = 0)
     return (int) $value;
 }
 
-function isAdminUser($conn, $userId)
+function normalizeAdminDisplayName($value)
+{
+    $name = preg_replace('/\s+/u', ' ', trim((string) $value));
+    return trimText($name, 30);
+}
+
+function getAdminProfile($conn, $userId)
 {
     if (!$conn instanceof mysqli) {
-        return false;
+        return null;
     }
 
     $normalizedUserId = normalizeUserId($userId);
     if ($normalizedUserId === '') {
-        return false;
+        return null;
     }
 
-    $stmt = $conn->prepare('SELECT 1 FROM feedback_admins WHERE user_id = ? AND enabled = 1 LIMIT 1');
+    $stmt = $conn->prepare(
+        'SELECT user_id, display_name, is_super_admin
+         FROM feedback_admins
+         WHERE user_id = ? AND enabled = 1
+         LIMIT 1'
+    );
     if (!$stmt) {
-        return false;
+        return null;
     }
 
     $stmt->bind_param('s', $normalizedUserId);
     $stmt->execute();
     $result = $stmt->get_result();
-    $isAdmin = $result && $result->num_rows > 0;
+    $row = $result ? $result->fetch_assoc() : null;
     $stmt->close();
 
-    return $isAdmin;
+    if (!$row) {
+        return null;
+    }
+
+    return [
+        'user_id' => $row['user_id'],
+        'display_name' => (string) ($row['display_name'] ?? ''),
+        'is_super_admin' => (int) ($row['is_super_admin'] ?? 0) === 1
+    ];
+}
+
+function isAdminUser($conn, $userId)
+{
+    return getAdminProfile($conn, $userId) !== null;
 }
 
 function logAdminDebugStart($conn, $adminUserId, $targetUserId)
@@ -165,13 +189,16 @@ function buildSessionContext($conn, $input)
     $authExp = normalizeAuthExpire($input['auth_exp'] ?? '');
     $authSig = trim((string) ($input['auth_sig'] ?? ''));
     $authenticated = isAuthSignatureValid($userId, $authExp, $authSig);
+    $adminProfile = ($authenticated && $conn instanceof mysqli) ? getAdminProfile($conn, $userId) : null;
 
     return [
         'user_id' => $userId,
         'auth_exp' => $authExp,
         'auth_sig' => $authSig,
         'authenticated' => $authenticated,
-        'is_admin' => ($authenticated && $conn instanceof mysqli) ? isAdminUser($conn, $userId) : false
+        'is_admin' => $adminProfile !== null,
+        'is_super_admin' => $adminProfile ? $adminProfile['is_super_admin'] : false,
+        'admin_display_name' => $adminProfile ? $adminProfile['display_name'] : ''
     ];
 }
 
@@ -188,6 +215,46 @@ function requireAdmin($context)
     if (!($context['is_admin'] ?? false)) {
         sendJson(403, '无管理员权限', [], 403);
     }
+}
+
+function requireSuperAdmin($context)
+{
+    requireAdmin($context);
+    if (!($context['is_super_admin'] ?? false)) {
+        sendJson(403, '仅超级管理员可管理管理员成员', [], 403);
+    }
+}
+
+function countEnabledSuperAdmins($conn)
+{
+    $result = $conn->query('SELECT COUNT(*) AS total FROM feedback_admins WHERE enabled = 1 AND is_super_admin = 1');
+    $row = $result ? $result->fetch_assoc() : null;
+    return (int) ($row['total'] ?? 0);
+}
+
+function getAdminMemberList($conn)
+{
+    $result = $conn->query(
+        'SELECT user_id, display_name, is_super_admin, created_at, updated_at
+         FROM feedback_admins
+         WHERE enabled = 1
+         ORDER BY is_super_admin DESC, created_at ASC, user_id ASC'
+    );
+    if (!$result) {
+        sendJson(500, '管理员列表获取失败', [], 500);
+    }
+
+    $list = [];
+    while ($row = $result->fetch_assoc()) {
+        $list[] = [
+            'user_id' => $row['user_id'],
+            'display_name' => (string) ($row['display_name'] ?? ''),
+            'is_super_admin' => (int) ($row['is_super_admin'] ?? 0) === 1,
+            'created_at' => $row['created_at'],
+            'updated_at' => $row['updated_at']
+        ];
+    }
+    return $list;
 }
 
 function getThreadById($conn, $threadId)
@@ -273,7 +340,8 @@ function getAuthorLabel($threadOrReply, $context, $threadVisibility = 'public')
     $userId = $threadOrReply['user_id'] ?? '';
 
     if ($role === 'admin') {
-        return '管理员';
+        $adminDisplayName = normalizeAdminDisplayName($threadOrReply['admin_display_name'] ?? '');
+        return $adminDisplayName === '' ? '管理员' : ('管理员•' . $adminDisplayName);
     }
 
     if (($context['authenticated'] ?? false) && ($context['user_id'] ?? '') === $userId) {
@@ -294,9 +362,11 @@ function getPinnedReplySummary($conn, $pinnedReplyId, $context, $threadVisibilit
     }
 
     $stmt = $conn->prepare(
-        'SELECT id, thread_id, user_id, role, content, is_pinned, created_at
-         FROM feedback_replies
-         WHERE id = ?
+        'SELECT r.id, r.thread_id, r.user_id, r.role, r.content, r.is_pinned, r.created_at,
+                COALESCE(a.display_name, \'\') AS admin_display_name
+         FROM feedback_replies r
+         LEFT JOIN feedback_admins a ON a.user_id = r.user_id
+         WHERE r.id = ?
          LIMIT 1'
     );
     if (!$stmt) {
@@ -422,10 +492,12 @@ function fetchReplyList($conn, $thread, $context)
 {
     $threadId = (int) $thread['id'];
     $stmt = $conn->prepare(
-        'SELECT id, thread_id, user_id, role, content, is_pinned, created_at
-         FROM feedback_replies
-         WHERE thread_id = ?
-         ORDER BY is_pinned DESC, created_at ASC, id ASC'
+        'SELECT r.id, r.thread_id, r.user_id, r.role, r.content, r.is_pinned, r.created_at,
+                COALESCE(a.display_name, \'\') AS admin_display_name
+         FROM feedback_replies r
+         LEFT JOIN feedback_admins a ON a.user_id = r.user_id
+         WHERE r.thread_id = ?
+         ORDER BY r.is_pinned DESC, r.created_at ASC, r.id ASC'
     );
     if (!$stmt) {
         sendJson(500, '查询回复失败', [], 500);
@@ -513,7 +585,9 @@ $context = [
     'auth_exp' => 0,
     'auth_sig' => '',
     'authenticated' => false,
-    'is_admin' => false
+    'is_admin' => false,
+    'is_super_admin' => false,
+    'admin_display_name' => ''
 ];
 
 try {
@@ -529,6 +603,8 @@ try {
         sendJson(200, '会话状态获取成功', [
             'authenticated' => $context['authenticated'],
             'is_admin' => $context['is_admin'],
+            'is_super_admin' => $context['is_super_admin'],
+            'admin_display_name' => $context['admin_display_name'],
             'user_id' => $context['user_id'],
             'masked_user_id' => buildMaskedUserLabel($context['user_id']),
             'auth_exp' => $context['auth_exp']
@@ -537,6 +613,127 @@ try {
 
     $conn = dbConnect();
     $context = buildSessionContext($conn, $input);
+
+    if ($action === 'admin_member_list') {
+        requireAdmin($context);
+        sendJson(200, '管理员列表获取成功', [
+            'list' => getAdminMemberList($conn),
+            'current_user_id' => $context['user_id'],
+            'is_super_admin' => $context['is_super_admin'],
+            'admin_display_name' => $context['admin_display_name']
+        ]);
+    }
+
+    if ($action === 'admin_profile_update') {
+        requireAdmin($context);
+        $displayName = normalizeAdminDisplayName($input['display_name'] ?? '');
+        $stmt = $conn->prepare(
+            'UPDATE feedback_admins
+             SET display_name = ?, updated_at = NOW()
+             WHERE user_id = ? AND enabled = 1'
+        );
+        if (!$stmt) {
+            sendJson(500, '管理员名称保存失败', [], 500);
+        }
+        $stmt->bind_param('ss', $displayName, $context['user_id']);
+        $stmt->execute();
+        $stmt->close();
+        sendJson(200, '管理员名称已保存', [
+            'user_id' => $context['user_id'],
+            'display_name' => $displayName,
+            'is_super_admin' => $context['is_super_admin']
+        ]);
+    }
+
+    if ($action === 'admin_member_add') {
+        requireSuperAdmin($context);
+        $targetUserId = normalizeUserId($input['target_user_id'] ?? '');
+        if (!preg_match('/^\d{8,12}$/', $targetUserId)) {
+            sendJson(400, '请输入正确的学号', [], 400);
+        }
+        $displayName = normalizeAdminDisplayName($input['display_name'] ?? '');
+        $isSuperAdmin = !empty($input['is_super_admin']) ? 1 : 0;
+        $stmt = $conn->prepare(
+            'INSERT INTO feedback_admins
+             (user_id, display_name, is_super_admin, enabled, created_at, updated_at)
+             VALUES (?, ?, ?, 1, NOW(), NOW())
+             ON DUPLICATE KEY UPDATE
+                 display_name = VALUES(display_name),
+                 is_super_admin = VALUES(is_super_admin),
+                 enabled = 1,
+                 updated_at = NOW()'
+        );
+        if (!$stmt) {
+            sendJson(500, '新增管理员失败', [], 500);
+        }
+        $stmt->bind_param('ssi', $targetUserId, $displayName, $isSuperAdmin);
+        $stmt->execute();
+        $stmt->close();
+        sendJson(200, '管理员已添加', [
+            'user_id' => $targetUserId,
+            'display_name' => $displayName,
+            'is_super_admin' => $isSuperAdmin === 1
+        ]);
+    }
+
+    if ($action === 'admin_member_update') {
+        requireSuperAdmin($context);
+        $targetUserId = normalizeUserId($input['target_user_id'] ?? '');
+        $profile = getAdminProfile($conn, $targetUserId);
+        if (!$profile) {
+            sendJson(404, '管理员不存在', [], 404);
+        }
+
+        $nextIsSuperAdmin = !empty($input['is_super_admin']);
+        if ($profile['is_super_admin'] && !$nextIsSuperAdmin && countEnabledSuperAdmins($conn) <= 1) {
+            sendJson(400, '至少需要保留一名超级管理员', [], 400);
+        }
+
+        $isSuperAdmin = $nextIsSuperAdmin ? 1 : 0;
+        $stmt = $conn->prepare(
+            'UPDATE feedback_admins
+             SET is_super_admin = ?, updated_at = NOW()
+             WHERE user_id = ? AND enabled = 1'
+        );
+        if (!$stmt) {
+            sendJson(500, '管理员权限更新失败', [], 500);
+        }
+        $stmt->bind_param('is', $isSuperAdmin, $targetUserId);
+        $stmt->execute();
+        $stmt->close();
+        sendJson(200, '管理员权限已更新', [
+            'user_id' => $targetUserId,
+            'is_super_admin' => $nextIsSuperAdmin
+        ]);
+    }
+
+    if ($action === 'admin_member_remove') {
+        requireSuperAdmin($context);
+        $targetUserId = normalizeUserId($input['target_user_id'] ?? '');
+        $profile = getAdminProfile($conn, $targetUserId);
+        if (!$profile) {
+            sendJson(404, '管理员不存在', [], 404);
+        }
+        if ($targetUserId === $context['user_id']) {
+            sendJson(400, '不能移除当前登录的管理员账号', [], 400);
+        }
+        if ($profile['is_super_admin'] && countEnabledSuperAdmins($conn) <= 1) {
+            sendJson(400, '至少需要保留一名超级管理员', [], 400);
+        }
+
+        $stmt = $conn->prepare(
+            'UPDATE feedback_admins
+             SET enabled = 0, is_super_admin = 0, updated_at = NOW()
+             WHERE user_id = ? AND enabled = 1'
+        );
+        if (!$stmt) {
+            sendJson(500, '移除管理员失败', [], 500);
+        }
+        $stmt->bind_param('s', $targetUserId);
+        $stmt->execute();
+        $stmt->close();
+        sendJson(200, '管理员已移除', ['user_id' => $targetUserId]);
+    }
 
     if ($action === 'admin_debug_start') {
         requireAdmin($context);
@@ -712,16 +909,14 @@ try {
             refreshThreadCounters($conn, $threadId);
             $conn->commit();
 
-            if (!$context['is_admin']) {
-                sendFeedbackAdminNotification(
-                    $conn,
-                    'user_replied',
-                    $threadId,
-                    $context['user_id'],
-                    $thread['title'],
-                    $content
-                );
-            }
+            sendFeedbackAdminNotification(
+                $conn,
+                $context['is_admin'] ? 'admin_replied' : 'user_replied',
+                $threadId,
+                $context['user_id'],
+                $thread['title'],
+                $content
+            );
 
             sendJson(200, '回复成功', [
                 'reply_id' => $replyId,
