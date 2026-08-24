@@ -48,8 +48,8 @@
 			</template>
 		</scroll-view>
 
-		<uni-popup ref="profileDrawer" type="bottom" background-color="#fff">
-			<view class="drawer">
+		<view v-if="profileDrawerOpen" class="drawer-mask" @click="closeProfileDrawer" @touchmove.stop.prevent>
+			<view class="drawer" @click.stop>
 				<view class="drawer-handle"></view>
 				<view class="drawer-head">
 					<view class="drawer-title">修改管理员名称</view>
@@ -60,10 +60,10 @@
 				<view class="field-help">填写后，反馈回复将显示为“管理员•名称”。</view>
 				<view class="drawer-submit" :class="{ disabled: savingProfile }" @click="saveOwnProfile">{{ savingProfile ? '正在保存…' : '保存名称' }}</view>
 			</view>
-		</uni-popup>
+		</view>
 
-		<uni-popup ref="addDrawer" type="bottom" background-color="#fff">
-			<view class="drawer">
+		<view v-if="addDrawerOpen" class="drawer-mask" @click="closeAddDrawer" @touchmove.stop.prevent>
+			<view class="drawer" @click.stop>
 				<view class="drawer-handle"></view>
 				<view class="drawer-head">
 					<view class="drawer-title">新增管理员</view>
@@ -82,7 +82,7 @@
 				</view>
 				<view class="drawer-submit" :class="{ disabled: addingMember }" @click="addMember">{{ addingMember ? '正在添加…' : '添加管理员' }}</view>
 			</view>
-		</uni-popup>
+		</view>
 	</view>
 </template>
 
@@ -99,17 +99,17 @@ const ownDisplayName = ref('')
 const members = ref([])
 const savingProfile = ref(false)
 const addingMember = ref(false)
-const profileDrawer = ref(null)
-const addDrawer = ref(null)
+const profileDrawerOpen = ref(false)
+const addDrawerOpen = ref(false)
 const newMember = ref({ userId: '', displayName: '', isSuperAdmin: false })
 
 const ownAdminLabel = computed(() => ownDisplayName.value ? `管理员•${ownDisplayName.value}` : '管理员')
 const adminLabel = (item) => item.display_name ? `管理员•${item.display_name}` : '管理员'
 const goBack = () => uni.navigateBack()
-const openProfileDrawer = () => profileDrawer.value?.open()
-const openAddDrawer = () => addDrawer.value?.open()
-const closeProfileDrawer = () => profileDrawer.value?.close()
-const closeAddDrawer = () => addDrawer.value?.close()
+const openProfileDrawer = () => { profileDrawerOpen.value = true }
+const openAddDrawer = () => { addDrawerOpen.value = true }
+const closeProfileDrawer = () => { profileDrawerOpen.value = false }
+const closeAddDrawer = () => { addDrawerOpen.value = false }
 
 const loadMembers = async () => {
 	loading.value = true
@@ -132,7 +132,7 @@ const saveOwnProfile = async () => {
 	savingProfile.value = true
 	try {
 		await updateAdminProfile(ownDisplayName.value.trim())
-		profileDrawer.value?.close()
+		closeProfileDrawer()
 		await loadMembers()
 		uni.showToast({ title: '名称已保存', icon: 'success' })
 	} catch (error) {
@@ -150,7 +150,7 @@ const addMember = async () => {
 	try {
 		await addAdminMember({ target_user_id: userId, display_name: newMember.value.displayName.trim(), is_super_admin: newMember.value.isSuperAdmin })
 		newMember.value = { userId: '', displayName: '', isSuperAdmin: false }
-		addDrawer.value?.close()
+		closeAddDrawer()
 		await loadMembers()
 		uni.showToast({ title: '管理员已添加', icon: 'success' })
 	} catch (error) {
@@ -230,7 +230,8 @@ onShow(loadMembers)
 .row-actions { display: flex; justify-content: flex-end; gap: 16rpx; }
 .row-action { font-size: 20rpx; font-weight: 650; color: #2563eb; }
 .row-action.danger { color: #dc2626; }
-.drawer { padding: 12rpx 28rpx calc(env(safe-area-inset-bottom) + 28rpx); border-radius: 28rpx 28rpx 0 0; }
+.drawer-mask { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: flex-end; background: rgba(15, 23, 42, 0.48); }
+.drawer { width: 100%; padding: 12rpx 28rpx calc(env(safe-area-inset-bottom) + 28rpx); box-sizing: border-box; border-radius: 28rpx 28rpx 0 0; background: #fff; }
 .drawer-handle { width: 72rpx; height: 8rpx; margin: 0 auto 20rpx; border-radius: 999rpx; background: #d7dee8; }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; }
 .drawer-title { font-size: 31rpx; font-weight: 700; color: #0f172a; }
