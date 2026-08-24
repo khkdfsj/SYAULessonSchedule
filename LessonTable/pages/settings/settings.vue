@@ -178,7 +178,15 @@
 				<view class="group-title">维护工具</view>
 				<view class="group-description">如遇课表异常，请先尝试清空缓存并重新认证；如仍未解决，可前往“问题反馈与建议”提交工单。</view>
 				<view class="tool-btn" @click="clearCustomCourses">清除自定义课程</view>
-				<view v-if="!debugState" class="tool-btn danger" @click="clearLocalDataAndReauthenticate">清空缓存并重新认证</view>
+				<view
+					v-if="!debugState"
+					class="tool-btn danger"
+					:class="{ disabled: nightForcedCache }"
+					:aria-disabled="nightForcedCache"
+					@click="clearLocalDataAndReauthenticate"
+				>
+					{{ nightForcedCache ? '清空缓存并重新认证（夜间不可用）' : '清空缓存并重新认证' }}
+				</view>
 			</view>
 
 			<view class="tips-card">
@@ -914,6 +922,14 @@ onUnload(() => {
 .tool-btn.danger {
 	background: rgba(254, 242, 242, 0.96);
 	color: #dc2626;
+}
+
+.tool-btn.disabled {
+	background: #e2e8f0;
+	color: #94a3b8;
+	box-shadow: none;
+	opacity: 0.82;
+	pointer-events: none;
 }
 
 .inline-tip {

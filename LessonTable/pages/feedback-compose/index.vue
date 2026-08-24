@@ -83,6 +83,12 @@ const showOfflineTimeNotice = () => uni.showModal({
 	showCancel: false,
 	confirmText: '知道了'
 })
+const showNightDataNotice = () => uni.showModal({
+	title: '夜间数据提示',
+	content: '22:00至次日06:00课表自动使用缓存，暂时无法获取最新数据。如课表信息不准确，请在白天重新进入课表并刷新后再提交反馈。',
+	showCancel: false,
+	confirmText: '知道了'
+})
 const loadSession = async () => {
 	authState.value = 'checking'
 	try {
@@ -127,6 +133,9 @@ const submitForm = async () => {
 
 onLoad((query) => {
 	if (query?.type === 'suggestion') type.value = 'suggestion'
+	if (type.value === 'issue' && isEnterpriseAuthOfflineTime()) {
+		setTimeout(showNightDataNotice, 80)
+	}
 })
 onShow(loadSession)
 </script>
