@@ -32,7 +32,10 @@ function getFeedbackAdminNotificationRecipients($conn)
         return [];
     }
     $result = $conn->query(
-        'SELECT user_id FROM feedback_admins WHERE enabled = 1 ORDER BY user_id ASC'
+        'SELECT user_id
+         FROM feedback_admins
+         WHERE enabled = 1 AND notification_enabled = 1
+         ORDER BY user_id ASC'
     );
     if (!$result) {
         return [];

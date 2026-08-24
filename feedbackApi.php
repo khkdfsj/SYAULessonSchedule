@@ -118,7 +118,7 @@ function getAdminProfile($conn, $userId)
     }
 
     $stmt = $conn->prepare(
-        'SELECT user_id, display_name, is_super_admin
+        'SELECT user_id, display_name, is_super_admin, notification_enabled
          FROM feedback_admins
          WHERE user_id = ? AND enabled = 1
          LIMIT 1'
@@ -140,7 +140,8 @@ function getAdminProfile($conn, $userId)
     return [
         'user_id' => $row['user_id'],
         'display_name' => (string) ($row['display_name'] ?? ''),
-        'is_super_admin' => (int) ($row['is_super_admin'] ?? 0) === 1
+        'is_super_admin' => (int) ($row['is_super_admin'] ?? 0) === 1,
+        'notification_enabled' => (int) ($row['notification_enabled'] ?? 1) === 1
     ];
 }
 
@@ -198,7 +199,8 @@ function buildSessionContext($conn, $input)
         'authenticated' => $authenticated,
         'is_admin' => $adminProfile !== null,
         'is_super_admin' => $adminProfile ? $adminProfile['is_super_admin'] : false,
-        'admin_display_name' => $adminProfile ? $adminProfile['display_name'] : ''
+        'admin_display_name' => $adminProfile ? $adminProfile['display_name'] : '',
+        'admin_notification_enabled' => $adminProfile ? $adminProfile['notification_enabled'] : false
     ];
 }
 
@@ -235,7 +237,7 @@ function countEnabledSuperAdmins($conn)
 function getAdminMemberList($conn)
 {
     $result = $conn->query(
-        'SELECT user_id, display_name, is_super_admin, created_at, updated_at
+        'SELECT user_id, display_name, is_super_admin, notification_enabled, created_at, updated_at
          FROM feedback_admins
          WHERE enabled = 1
          ORDER BY is_super_admin DESC, created_at ASC, user_id ASC'
@@ -250,6 +252,7 @@ function getAdminMemberList($conn)
             'user_id' => $row['user_id'],
             'display_name' => (string) ($row['display_name'] ?? ''),
             'is_super_admin' => (int) ($row['is_super_admin'] ?? 0) === 1,
+            'notification_enabled' => (int) ($row['notification_enabled'] ?? 1) === 1,
             'created_at' => $row['created_at'],
             'updated_at' => $row['updated_at']
         ];
@@ -587,7 +590,8 @@ $context = [
     'authenticated' => false,
     'is_admin' => false,
     'is_super_admin' => false,
-    'admin_display_name' => ''
+    'admin_display_name' => '',
+    'admin_notification_enabled' => false
 ];
 
 try {
@@ -605,6 +609,7 @@ try {
             'is_admin' => $context['is_admin'],
             'is_super_admin' => $context['is_super_admin'],
             'admin_display_name' => $context['admin_display_name'],
+            'admin_notification_enabled' => $context['admin_notification_enabled'],
             'user_id' => $context['user_id'],
             'masked_user_id' => buildMaskedUserLabel($context['user_id']),
             'auth_exp' => $context['auth_exp']
@@ -620,7 +625,8 @@ try {
             'list' => getAdminMemberList($conn),
             'current_user_id' => $context['user_id'],
             'is_super_admin' => $context['is_super_admin'],
-            'admin_display_name' => $context['admin_display_name']
+            'admin_display_name' => $context['admin_display_name'],
+            'admin_notification_enabled' => $context['admin_notification_enabled']
         ]);
     }
 
@@ -645,6 +651,26 @@ try {
         ]);
     }
 
+    if ($action === 'admin_notification_update') {
+        requireAdmin($context);
+        $notificationEnabled = !empty($input['notification_enabled']) ? 1 : 0;
+        $stmt = $conn->prepare(
+            'UPDATE feedback_admins
+             SET notification_enabled = ?, updated_at = NOW()
+             WHERE user_id = ? AND enabled = 1'
+        );
+        if (!$stmt) {
+            sendJson(500, '消息提醒设置保存失败', [], 500);
+        }
+        $stmt->bind_param('is', $notificationEnabled, $context['user_id']);
+        $stmt->execute();
+        $stmt->close();
+        sendJson(200, '消息提醒设置已保存', [
+            'user_id' => $context['user_id'],
+            'notification_enabled' => $notificationEnabled === 1
+        ]);
+    }
+
     if ($action === 'admin_member_add') {
         requireSuperAdmin($context);
         $targetUserId = normalizeUserId($input['target_user_id'] ?? '');
@@ -655,11 +681,12 @@ try {
         $isSuperAdmin = !empty($input['is_super_admin']) ? 1 : 0;
         $stmt = $conn->prepare(
             'INSERT INTO feedback_admins
-             (user_id, display_name, is_super_admin, enabled, created_at, updated_at)
-             VALUES (?, ?, ?, 1, NOW(), NOW())
+             (user_id, display_name, is_super_admin, notification_enabled, enabled, created_at, updated_at)
+             VALUES (?, ?, ?, 1, 1, NOW(), NOW())
              ON DUPLICATE KEY UPDATE
                  display_name = VALUES(display_name),
                  is_super_admin = VALUES(is_super_admin),
+                 notification_enabled = 1,
                  enabled = 1,
                  updated_at = NOW()'
         );

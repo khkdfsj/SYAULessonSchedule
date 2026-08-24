@@ -41,6 +41,16 @@ export function updateAdminProfile(displayName) {
 	})
 }
 
+export function updateAdminNotification(notificationEnabled) {
+	return requestRaw({
+		url: FEEDBACK_API_URL,
+		data: buildAuthPayload({
+			action: 'admin_notification_update',
+			notification_enabled: notificationEnabled
+		})
+	})
+}
+
 export function addAdminMember(payload) {
 	return requestRaw({
 		url: FEEDBACK_API_URL,

@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS `feedback_admins` (
   `user_id` varchar(20) NOT NULL,
   `display_name` varchar(30) NOT NULL DEFAULT '',
   `is_super_admin` tinyint(1) NOT NULL DEFAULT 0,
+  `notification_enabled` tinyint(1) NOT NULL DEFAULT 1,
   `enabled` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -72,10 +73,10 @@ CREATE TABLE IF NOT EXISTS `feedback_notification_logs` (
   KEY `idx_feedback_notification_retry` (`success`,`next_retry_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT INTO `feedback_admins` (`user_id`, `display_name`, `is_super_admin`, `enabled`)
+INSERT INTO `feedback_admins` (`user_id`, `display_name`, `is_super_admin`, `notification_enabled`, `enabled`)
 VALUES
-  ('2022140101', '', 0, 1),
-  ('2023195077', '东方世家', 1, 1)
+  ('2022140101', '', 0, 1, 1),
+  ('2023195077', '东方世家', 1, 1, 1)
 ON DUPLICATE KEY UPDATE
   `display_name` = VALUES(`display_name`),
   `is_super_admin` = VALUES(`is_super_admin`),

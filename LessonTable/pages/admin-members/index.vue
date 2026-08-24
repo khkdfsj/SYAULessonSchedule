@@ -17,6 +17,9 @@
 					</view>
 					<view class="action-buttons">
 						<view class="action-btn secondary" @click="openProfileDrawer">修改名称</view>
+						<view class="action-btn notification" :class="{ off: !notificationEnabled, disabled: updatingNotification }" @click="toggleNotification">
+							{{ notificationEnabled ? '消息提醒：已开启' : '消息提醒：已关闭' }}
+						</view>
 						<view v-if="isSuperAdmin" class="action-btn primary" @click="openAddDrawer">新增管理员</view>
 					</view>
 				</view>
@@ -88,7 +91,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { addAdminMember, getAdminMemberList, removeAdminMember, updateAdminMember, updateAdminProfile } from '@/api/feedback.js'
+import { addAdminMember, getAdminMemberList, removeAdminMember, updateAdminMember, updateAdminNotification, updateAdminProfile } from '@/api/feedback.js'
 import { getErrorMessage } from '@/utils/http.js'
 
 const loading = ref(true)
@@ -96,8 +99,10 @@ const errorText = ref('')
 const currentUserId = ref('')
 const isSuperAdmin = ref(false)
 const ownDisplayName = ref('')
+const notificationEnabled = ref(true)
 const members = ref([])
 const savingProfile = ref(false)
+const updatingNotification = ref(false)
 const addingMember = ref(false)
 const profileDrawerOpen = ref(false)
 const addDrawerOpen = ref(false)
@@ -120,11 +125,46 @@ const loadMembers = async () => {
 		currentUserId.value = response?.data?.current_user_id || ''
 		isSuperAdmin.value = response?.data?.is_super_admin === true
 		ownDisplayName.value = response?.data?.admin_display_name || ''
+		notificationEnabled.value = response?.data?.admin_notification_enabled !== false
 	} catch (error) {
 		errorText.value = getErrorMessage(error, '管理员信息加载失败')
 	} finally {
 		loading.value = false
 	}
+}
+
+const saveNotificationSetting = async (enabled) => {
+	if (updatingNotification.value) return
+	updatingNotification.value = true
+	try {
+		await updateAdminNotification(enabled)
+		notificationEnabled.value = enabled
+		const ownMember = members.value.find((item) => item.user_id === currentUserId.value)
+		if (ownMember) ownMember.notification_enabled = enabled
+		uni.showToast({ title: enabled ? '消息提醒已开启' : '消息提醒已关闭', icon: 'success' })
+	} catch (error) {
+		uni.showToast({ title: getErrorMessage(error, '设置保存失败'), icon: 'none' })
+	} finally {
+		updatingNotification.value = false
+	}
+}
+
+const toggleNotification = () => {
+	if (updatingNotification.value) return
+	if (!notificationEnabled.value) {
+		saveNotificationSetting(true)
+		return
+	}
+	uni.showModal({
+		title: '关闭消息提醒',
+		content: '关闭后将不再接收新反馈和回复提醒，管理员功能不受影响。',
+		confirmText: '确认关闭',
+		confirmColor: '#dc2626',
+		cancelText: '取消',
+		success: (result) => {
+			if (result.confirm) saveNotificationSetting(false)
+		}
+	})
 }
 
 const saveOwnProfile = async () => {
@@ -204,13 +244,16 @@ onShow(loadMembers)
 .state-row, .action-bar, .list-section { background: #fff; }
 .state-row { padding: 30rpx; border-radius: 22rpx; color: #64748b; font-size: 25rpx; }
 .state-row.warn { color: #b45309; }
-.action-bar { padding: 26rpx; border-radius: 22rpx; display: flex; align-items: center; justify-content: space-between; gap: 20rpx; }
+.action-bar { padding: 26rpx; border-radius: 22rpx; }
 .identity-summary { min-width: 0; }
 .identity-name { font-size: 28rpx; font-weight: 700; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .identity-meta { margin-top: 7rpx; font-size: 21rpx; color: #64748b; }
-.action-buttons { flex: none; display: flex; gap: 12rpx; }
+.action-buttons { margin-top: 20rpx; display: flex; flex-wrap: wrap; gap: 12rpx; }
 .action-btn { height: 58rpx; padding: 0 18rpx; border-radius: 14rpx; display: flex; align-items: center; justify-content: center; font-size: 22rpx; font-weight: 700; }
 .action-btn.secondary { background: #f1f5f9; color: #334155; }
+.action-btn.notification { background: #e8f7ef; color: #15803d; }
+.action-btn.notification.off { background: #fff1f2; color: #be123c; }
+.action-btn.disabled { opacity: 0.55; pointer-events: none; }
 .action-btn.primary { background: #2563eb; color: #fff; }
 .list-section { margin-top: 20rpx; border-radius: 22rpx; overflow: hidden; }
 .list-title-row { height: 82rpx; padding: 0 24rpx; display: flex; align-items: center; justify-content: space-between; border-bottom: 1rpx solid #e2e8f0; }
