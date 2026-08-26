@@ -67,10 +67,11 @@
 							</view>
 						</template>
 						<template v-for="item in getWeekCourseRenderList(panel.week)" :key="item.renderKey">
-							<view class="course-item"
+							<view class="course-item" :class="{ 'is-conflict': item.isConflict }"
 								:style="getCourseItemStyle(item)">
-								<view class="course-item__content ripple-host ripple-clip" :style="getCourseCardStyle(item.name)"
+								<view class="course-item__content ripple-host ripple-clip" :style="getCourseCardStyle(item)"
 									@click="GetCourseDetails(item, $event)">
+									<view v-if="item.isConflict" class="course-conflict-badge">冲突</view>
 									<view class="course-item__content_name">
 										{{ item.name || '未知课程' }}
 									</view>
@@ -145,8 +146,17 @@
 					</view>
 				</view>
 				<view class="course-details">
-					<view class="course-name">
-						{{ DetailedCourseData.name || '未知课程' }}
+					<view class="course-name-row">
+						<view class="course-name">
+							{{ DetailedCourseData.name || '未知课程' }}
+						</view>
+						<view v-if="hasDetailedCourseConflict" class="course-conflict-switch ripple-host ripple-clip"
+							@click.stop="cycleDetailedConflictCourse">
+							切换 {{ detailedConflictIndex + 1 }}/{{ detailedConflictCourses.length }}
+						</view>
+					</view>
+					<view v-if="hasDetailedCourseConflict" class="course-conflict-tip">
+						当前时间段存在多门课程，点击“切换”可查看其他课程。
 					</view>
 					<view class="course-Introduce">
 						<p class="course-Introduce-text"> 星期{{ ScheduleData.weekIndexText[DetailedCourseData.week - 1] || '-' }}
@@ -162,6 +172,17 @@
 						<p class="course-Introduce-text">{{ DetailedCourseData.address || '-' }} &nbsp; | &nbsp;
 							{{ DetailedCourseData.teacher || '-' }}
 						</p>
+					</view>
+					<view v-if="hasDetailedCourseConflict" class="course-priority-panel">
+						<view class="course-priority-copy">
+							<view class="course-priority-title">课表优先展示</view>
+							<view class="course-priority-description">发生课程冲突时，优先在课表中显示这门课程。</view>
+						</view>
+						<view class="course-priority-btn ripple-host ripple-clip"
+							:class="{ active: isDetailedCoursePreferred }"
+							@click.stop="setDetailedCoursePreferred">
+							{{ isDetailedCoursePreferred ? '当前优先展示' : '设为优先展示' }}
+						</view>
 					</view>
 				</view>
 				<!-- 作为弹窗固定底栏展示，避免小屏设备需要滚动后才能看到课程群入口。 -->
@@ -231,10 +252,14 @@ defineOptions({
 const CUSTOM_COURSE_STORE_KEY = 'CustomCoursesByUser'
 const CUSTOM_COURSE_META_KEY = 'CustomCourseMetaByUser'
 const DATA_SOURCE_MIGRATION_NOTICE_KEY = 'LessonSchedule.DataSourceAutomaticMigration.v1'
+const COURSE_CONFLICT_PREFERENCE_KEY = 'LessonSchedule.CourseConflictPreferences.v1'
+const COURSE_CONFLICT_NOTICE_KEY = 'LessonSchedule.CourseConflictNotice.v1'
 let legacyManualCacheDetected = false
+let entryNoticeSequenceStarted = false
 const debugState = ref(getAdminDebugState())
 var ScheduleData = ref({
 	UserID: '',
+	semesterMark: '',
 	TemporaryWeek: 1,
 	nowWeek: 1,
 	totalWeek: 20,
@@ -285,6 +310,10 @@ var ScheduleData = ref({
 
 const updatePromptRef = ref(null);
 const DetailedCourseData = ref({})
+const detailedConflictCourses = ref([])
+const detailedConflictIndex = ref(0)
+const courseConflictPreferences = ref({})
+const hasDetailedCourseConflict = computed(() => detailedConflictCourses.value.length > 1)
 const canEditDetailedCourse = computed(() => !!DetailedCourseData.value?.isLocal)
 const canOpenCourseComments = computed(() => {
 	return !DetailedCourseData.value?.isLocal && !!DetailedCourseData.value?.name && !!DetailedCourseData.value?.teacher
@@ -532,6 +561,45 @@ const showFeatureNoticeOnce = (delay = 350) => {
 	window.LessonScheduleAnnouncements?.showCurrent({ delay })
 }
 
+const getCourseConflictNoticeToken = () => getCourseConflictSemesterScope()
+
+const showSemesterCourseConflictNoticeOnce = (delay = 350) => {
+	if (!hasSemesterCourseConflicts()) return Promise.resolve(false)
+	const token = getCourseConflictNoticeToken()
+	if (!token) return Promise.resolve(false)
+	const stored = uni.getStorageSync(COURSE_CONFLICT_NOTICE_KEY)
+	const seen = stored && typeof stored === 'object' ? stored : {}
+	if (seen[token]) return Promise.resolve(false)
+
+	return new Promise((resolve) => {
+		setTimeout(() => {
+			uni.showModal({
+				title: '发现课程时间冲突',
+				content: '本学期有部分课程安排在同一周、同一时间。课表会用红色边框标记冲突课程；点击课程卡片后，可切换查看其他课程，也可将当前课程设为优先展示。优先展示不会消除冲突，请留意学校的最终课程安排。',
+				showCancel: false,
+				confirmText: '知道了',
+				success: (result) => {
+					if (result.confirm) {
+						uni.setStorageSync(COURSE_CONFLICT_NOTICE_KEY, {
+							...seen,
+							[token]: Date.now()
+						})
+					}
+					resolve(true)
+				},
+				fail: () => resolve(false)
+			})
+		}, Math.max(0, Number(delay) || 0))
+	})
+}
+
+const scheduleEntryNotices = async (delay = 350) => {
+	if (entryNoticeSequenceStarted) return
+	entryNoticeSequenceStarted = true
+	const conflictNoticeShown = await showSemesterCourseConflictNoticeOnce(delay)
+	showFeatureNoticeOnce(conflictNoticeShown ? 250 : delay)
+}
+
 const getLocalCoursesByUser = (userID) => {
 	if (!userID) return []
 	const bucket = getCustomCourseBucket()
@@ -560,6 +628,156 @@ const mergeCourseData = (onlineList, customList) => {
 
 const refreshLocalCourses = () => {
 	mergeCourseData(ScheduleData.value.onlineCourseList, getLocalCoursesByUser(ScheduleData.value.UserID))
+}
+
+const loadCourseConflictPreferences = () => {
+	const stored = uni.getStorageSync(COURSE_CONFLICT_PREFERENCE_KEY)
+	courseConflictPreferences.value = stored && typeof stored === 'object' ? stored : {}
+}
+
+const getCourseConflictSemesterScope = () => {
+	const userID = `${ScheduleData.value.UserID || ''}`.trim()
+	const semester = `${ScheduleData.value.semesterMark || ScheduleData.value.startDate || getCurrentSemesterMark()}`.trim()
+	return userID && semester ? `${userID}|${semester}` : ''
+}
+
+const getCourseConflictIdentity = (course) => {
+	if (!course) return ''
+	if (course.isLocal) {
+		return ['local', course.id || '', course.name || ''].join('|')
+	}
+	return [
+		'online',
+		course.num || '',
+		course.courseOrder || '',
+		course.planNumber || '',
+		course.name || ''
+	].map(item => `${item}`.trim()).join('|')
+}
+
+const getCourseOccurrenceIdentity = (course) => {
+	return [
+		getCourseConflictIdentity(course),
+		Number(course?.week) || 0,
+		Number(course?.section) || 0,
+		Math.max(1, Number(course?.sectionCount) || 1)
+	].join('|')
+}
+
+const getCourseStartSection = (course) => Math.max(1, Number(course?.section) || 1)
+
+const getCourseLastSection = (course) => {
+	return getCourseStartSection(course) + Math.max(1, Number(course?.sectionCount) || 1) - 1
+}
+
+const getCourseDefaultConflictRank = (course) => {
+	const description = `${course?.CourseAttribute || ''} ${course?.category || ''}`
+	if (/重修|补修|自学/.test(description)) return 2
+	if (course?.isLocal) return 3
+	return 1
+}
+
+const getScopedCourseConflictPriorities = () => {
+	const scope = getCourseConflictSemesterScope()
+	if (!scope) return {}
+	const scoped = courseConflictPreferences.value?.[scope]
+	return scoped && typeof scoped === 'object' ? scoped : {}
+}
+
+const getPreferredConflictCourse = (courses) => {
+	if (!Array.isArray(courses) || !courses.length) return null
+	const priorities = getScopedCourseConflictPriorities()
+	let preferred = null
+	let preferredAt = 0
+	for (const course of courses) {
+		const selectedAt = Number(priorities[getCourseConflictIdentity(course)]) || 0
+		if (selectedAt > preferredAt) {
+			preferred = course
+			preferredAt = selectedAt
+		}
+	}
+	if (preferred) return preferred
+	return [...courses].sort((left, right) => {
+		const rankDiff = getCourseDefaultConflictRank(left) - getCourseDefaultConflictRank(right)
+		if (rankDiff !== 0) return rankDiff
+		return getCourseOccurrenceIdentity(left).localeCompare(getCourseOccurrenceIdentity(right))
+	})[0]
+}
+
+const buildWeekCourseGroups = (weekNumber) => {
+	const coursesByDay = new Map()
+	for (const course of getWeekCourses(weekNumber)) {
+		const weekDay = Number(course.week) || 1
+		if (!coursesByDay.has(weekDay)) coursesByDay.set(weekDay, [])
+		coursesByDay.get(weekDay).push(course)
+	}
+
+	const renderGroups = []
+	for (const [weekDay, dayCourses] of coursesByDay.entries()) {
+		const sorted = [...dayCourses].sort((left, right) => {
+			return getCourseStartSection(left) - getCourseStartSection(right)
+				|| getCourseLastSection(left) - getCourseLastSection(right)
+		})
+		let component = []
+		let componentEnd = 0
+
+		const flushComponent = () => {
+			if (!component.length) return
+			const distinctCourses = []
+			const distinctKeys = new Set()
+			for (const course of component) {
+				const identity = getCourseConflictIdentity(course)
+				if (!identity || distinctKeys.has(identity)) continue
+				distinctKeys.add(identity)
+				distinctCourses.push(course)
+			}
+
+			if (distinctCourses.length <= 1) {
+				renderGroups.push(...component)
+				component = []
+				componentEnd = 0
+				return
+			}
+
+			const startSection = Math.min(...component.map(getCourseStartSection))
+			const endSection = Math.max(...component.map(getCourseLastSection))
+			const preferredCourse = getPreferredConflictCourse(distinctCourses) || distinctCourses[0]
+			const groupKey = [
+				weekDay,
+				...distinctCourses.map(getCourseConflictIdentity).sort()
+			].join('|')
+			renderGroups.push({
+				...preferredCourse,
+				section: `${startSection}`,
+				sectionCount: `${endSection - startSection + 1}`,
+				isConflict: true,
+				conflictGroupKey: groupKey,
+				conflictCourses: distinctCourses,
+				conflictCount: distinctCourses.length
+			})
+			component = []
+			componentEnd = 0
+		}
+
+		for (const course of sorted) {
+			const startSection = getCourseStartSection(course)
+			const endSection = getCourseLastSection(course)
+			if (component.length && startSection > componentEnd) flushComponent()
+			component.push(course)
+			componentEnd = Math.max(componentEnd, endSection)
+		}
+		flushComponent()
+	}
+
+	return renderGroups
+}
+
+const hasSemesterCourseConflicts = () => {
+	const maxWeek = Math.max(1, Number(ScheduleData.value.totalWeek) || 20)
+	for (let weekNumber = 1; weekNumber <= maxWeek; weekNumber++) {
+		if (buildWeekCourseGroups(weekNumber).some(item => item.isConflict)) return true
+	}
+	return false
 }
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
@@ -969,7 +1187,7 @@ const splitCourseByRestBreaks = (courseItem) => {
 }
 
 const getWeekCourseRenderList = (weekNumber) => {
-	return getWeekCourses(weekNumber).flatMap(splitCourseByRestBreaks)
+	return buildWeekCourseGroups(weekNumber).flatMap(splitCourseByRestBreaks)
 }
 
 const isSlotOccupied = (weekNumber, weekDay, section) => {
@@ -1039,13 +1257,17 @@ const handleEmptySlotTap = (slot, event) => {
 	armedEmptySlot.value = slot
 }
 
-const getCourseCardStyle = (courseName) => {
-	const cardColor = ScheduleData.value.courseColor[courseName] || '#dbeafe'
+const getCourseCardStyle = (course) => {
+	const cardColor = ScheduleData.value.courseColor[course?.name] || '#dbeafe'
+	const isConflict = !!course?.isConflict
 	return {
 		backgroundColor: hexToRgba(cardColor, 0.56),
 		color: darkenColor(cardColor, 0.42),
-		'--course-border-color': 'rgba(255, 255, 255, 0.78)',
-		'--course-glass-shadow': `0 8px 20px ${hexToRgba(cardColor, 0.2)}`,
+		'--course-border-color': isConflict ? '#ef4444' : 'rgba(255, 255, 255, 0.78)',
+		'--course-border-width': isConflict ? '2px' : '1px',
+		'--course-glass-shadow': isConflict
+			? `0 0 0 1px rgba(239, 68, 68, 0.18), 0 8px 20px ${hexToRgba(cardColor, 0.2)}`
+			: `0 8px 20px ${hexToRgba(cardColor, 0.2)}`,
 		'--course-name-size': `${layoutMetrics.value.nameFontSize}px`,
 		'--course-meta-size': `${layoutMetrics.value.metaFontSize}px`,
 		'--course-card-padding-x': `${layoutMetrics.value.cardPaddingX}px`,
@@ -1090,24 +1312,74 @@ const SelectWeeksPopup = (event) => {
 	openBottomSheet('week')
 };
 
+const prepareDetailedCourseServices = (course) => {
+	if (!course) return
+	const groupKey = getCourseGroupKey(course)
+	if (!groupKey) {
+		// 旧缓存缺少课程群唯一键时按需补齐，不影响冲突课程切换。
+		hydrateCourseGroupMetadata(course)
+		return
+	}
+	refreshCourseGroupState(course, {
+		silent: !!courseGroupStateMap.value[groupKey]
+	})
+}
+
+const selectDetailedConflictCourse = (course, index = -1) => {
+	if (!course) return
+	DetailedCourseData.value = course
+	const resolvedIndex = index >= 0
+		? index
+		: detailedConflictCourses.value.findIndex(item => getCourseOccurrenceIdentity(item) === getCourseOccurrenceIdentity(course))
+	detailedConflictIndex.value = resolvedIndex >= 0 ? resolvedIndex : 0
+	prepareDetailedCourseServices(course)
+}
+
 const GetCourseDetails = (course, event) => {
 	triggerRipple(event)
 	if (course) {
-		DetailedCourseData.value = course;
+		const conflictCourses = Array.isArray(course.conflictCourses) && course.conflictCourses.length > 1
+			? course.conflictCourses
+			: [course]
+		detailedConflictCourses.value = conflictCourses
+		const selectedIdentity = getCourseConflictIdentity(course)
+		const selectedIndex = conflictCourses.findIndex(item => getCourseConflictIdentity(item) === selectedIdentity)
+		selectDetailedConflictCourse(conflictCourses[selectedIndex >= 0 ? selectedIndex : 0], selectedIndex)
 		openBottomSheet('course')
-		const groupKey = getCourseGroupKey(course)
-		if (!groupKey) {
-			// 0.2.x 保存的本地课表缓存没有课序号和教学计划号，打开详情时按需补齐，
-			// 不要求用户清空整份课表，也不改变现有课表的排列和展示。
-			hydrateCourseGroupMetadata(course)
-		} else {
-			// 每次打开都静默刷新真实状态；已经缓存的状态继续显示，不让按钮反复闪烁加载动画。
-			refreshCourseGroupState(course, {
-				silent: !!courseGroupStateMap.value[groupKey]
-			})
-		}
 	}
 };
+
+const cycleDetailedConflictCourse = () => {
+	if (!hasDetailedCourseConflict.value) return
+	const nextIndex = (detailedConflictIndex.value + 1) % detailedConflictCourses.value.length
+	selectDetailedConflictCourse(detailedConflictCourses.value[nextIndex], nextIndex)
+}
+
+const isDetailedCoursePreferred = computed(() => {
+	if (!hasDetailedCourseConflict.value) return false
+	const preferred = getPreferredConflictCourse(detailedConflictCourses.value)
+	return getCourseConflictIdentity(preferred) === getCourseConflictIdentity(DetailedCourseData.value)
+})
+
+const setDetailedCoursePreferred = () => {
+	if (!hasDetailedCourseConflict.value || !DetailedCourseData.value) return
+	const scope = getCourseConflictSemesterScope()
+	const courseIdentity = getCourseConflictIdentity(DetailedCourseData.value)
+	if (!scope || !courseIdentity) {
+		uni.showToast({ title: '暂时无法保存，请稍后重试', icon: 'none' })
+		return
+	}
+	const scoped = {
+		...(courseConflictPreferences.value[scope] || {}),
+		[courseIdentity]: Date.now()
+	}
+	courseConflictPreferences.value = {
+		...courseConflictPreferences.value,
+		[scope]: scoped
+	}
+	uni.setStorageSync(COURSE_CONFLICT_PREFERENCE_KEY, courseConflictPreferences.value)
+	uni.showToast({ title: '已设为优先展示', icon: 'success' })
+}
 
 const isSameCourseOccurrence = (left, right) => {
 	if (!left || !right) return false
@@ -1123,6 +1395,7 @@ const isSameCourseOccurrence = (left, right) => {
  */
 const hydrateCourseGroupMetadata = async (course) => {
 	if (!course || course.isLocal || courseGroupMetadataLoading.value) return
+	const requestedOccurrence = getCourseOccurrenceIdentity(course)
 	courseGroupMetadataLoading.value = true
 	courseGroupMetadataError.value = ''
 	try {
@@ -1133,7 +1406,12 @@ const hydrateCourseGroupMetadata = async (course) => {
 			throw new Error('接口暂未返回课程群所需字段')
 		}
 		mergeCourseData(freshOnline, getLocalCoursesByUser(ScheduleData.value.UserID))
-		DetailedCourseData.value = matched
+		detailedConflictCourses.value = detailedConflictCourses.value.map(item => {
+			return getCourseOccurrenceIdentity(item) === requestedOccurrence ? matched : item
+		})
+		if (getCourseOccurrenceIdentity(DetailedCourseData.value) === requestedOccurrence) {
+			DetailedCourseData.value = matched
+		}
 		persistScheduleCache()
 		courseGroupMetadataLoading.value = false
 		await refreshCourseGroupState(matched)
@@ -2073,7 +2351,7 @@ const GetScheduleData = async () => {
 				icon: 'success',
 				duration: 1500
 			});
-			if (userSettings) showFeatureNoticeOnce(1700)
+			scheduleEntryNotices(1700)
 		} else {
 			console.warn('没有获取到有效的课表数据');
 			uni.showModal({
@@ -2171,7 +2449,7 @@ const showNightServiceNotice = (hasCache) => {
 			: '当前为夜间服务关闭时段（22:00–次日06:00），企业微信认证和学校实时课表服务暂不可用。当前设备没有可确认身份的课表缓存，请在白天重新进入。',
 		showCancel: false,
 		confirmText: '知道了',
-		success: () => showFeatureNoticeOnce()
+		success: () => scheduleEntryNotices(250)
 	})
 }
 
@@ -2327,6 +2605,7 @@ const bootstrapIndexPage = async (routeParams = {}) => {
 	updateLayoutMetrics();
 	closeBottomSheet();
 	ensureDataSourcePreference()
+	loadCourseConflictPreferences()
 	await showDataSourceMigrationNotice()
 	const activeDebugState = getAdminDebugState()
 	if (activeDebugState && activeDebugState.expiresAt * 1000 <= Date.now()) {
@@ -2395,9 +2674,11 @@ const bootstrapIndexPage = async (routeParams = {}) => {
 
 	ScheduleData.value.UserID = resolvedUserId
 	setCurrentUserId(resolvedUserId)
-	loadScheduleBySource({
-		cacheOnly: isEnterpriseServiceOfflineTime() || (cacheEntry && !sessionInfo?.authenticated)
-	})
+	const cacheOnly = isEnterpriseServiceOfflineTime() || (cacheEntry && !sessionInfo?.authenticated)
+	loadScheduleBySource({ cacheOnly })
+	if (cacheOnly && !isEnterpriseServiceOfflineTime()) {
+		scheduleEntryNotices(500)
+	}
 }
 
 // 加载数据
@@ -2464,7 +2745,7 @@ onShow(() => {
 	updateLayoutMetrics();
 	closeBottomSheet();
 	clearArmedEmptySlot()
-	showFeatureNoticeOnce(600)
+	if (ScheduleData.value.courseList.length) scheduleEntryNotices(600)
 
 	// 重新加载设置
 	loadSettings();
@@ -2555,7 +2836,6 @@ const handleVisibilityChange = () => {
 // 监听设置更新事件
 onMounted(() => {
 	updateLayoutMetrics();
-	showFeatureNoticeOnce(2600)
 	uni.$on('settingsUpdated', handleSettingsUpdated);
 	uni.$on('customCoursesChanged', handleCustomCoursesChanged);
 	lastAutomaticNightState = isEnterpriseServiceOfflineTime()
@@ -2946,13 +3226,14 @@ onUnmounted(() => {
 				z-index: 2;
 
 				.course-item__content {
+					position: relative;
 					font-family: 'Microsoft YaHei', sans-serif;
 					width: 100%;
 					height: 100%;
 					border-radius: 10px;
 					padding: var(--course-card-padding-y, 5px) var(--course-card-padding-x, 6px);
 					box-sizing: border-box;
-					border: 1px solid var(--course-border-color, rgba(255, 255, 255, 0.78));
+					border: var(--course-border-width, 1px) solid var(--course-border-color, rgba(255, 255, 255, 0.78));
 					box-shadow: var(--course-glass-shadow, 0 8px 18px rgba(80, 91, 122, 0.12));
 					backdrop-filter: blur(10px) saturate(130%);
 					-webkit-backdrop-filter: blur(10px) saturate(130%);
@@ -2970,6 +3251,21 @@ onUnmounted(() => {
 						font-weight: 700;
 						line-height: 1.25;
 						white-space: normal;
+					}
+
+					.course-conflict-badge {
+						position: absolute;
+						top: 2px;
+						right: 2px;
+						z-index: 2;
+						padding: 1px 3px;
+						border-radius: 5px;
+						background: #dc2626;
+						color: #fff;
+						font-size: 8px;
+						font-weight: 700;
+						line-height: 1.25;
+						box-shadow: 0 2px 6px rgba(153, 27, 27, 0.3);
 					}
 
 					.course-item__content_address {
@@ -3163,12 +3459,43 @@ onUnmounted(() => {
 		margin-top: 14px;
 		padding: 0 6px;
 
+		.course-name-row {
+			display: flex;
+			align-items: flex-start;
+			justify-content: space-between;
+			gap: 12px;
+		}
+
 		.course-name {
+			flex: 1;
+			min-width: 0;
 			font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
 			text-align: left;
 			font-size: 19px;
 			font-weight: 700;
 			color: #1f2937;
+		}
+
+		.course-conflict-switch {
+			flex: 0 0 auto;
+			padding: 7px 10px;
+			border-radius: 10px;
+			background: #fff1f2;
+			box-shadow: inset 0 0 0 1px #fecaca;
+			color: #dc2626;
+			font-size: 12px;
+			font-weight: 700;
+			white-space: nowrap;
+		}
+
+		.course-conflict-tip {
+			margin-top: 9px;
+			padding: 9px 11px;
+			border-radius: 10px;
+			background: #fff7ed;
+			color: #9a3412;
+			font-size: 12px;
+			line-height: 1.45;
 		}
 
 		.course-Introduce {
@@ -3180,6 +3507,53 @@ onUnmounted(() => {
 				color: #64748b;
 				margin-top: 8px;
 				line-height: 1.45;
+			}
+		}
+
+		.course-priority-panel {
+			margin-top: 14px;
+			padding: 12px;
+			border-radius: 12px;
+			background: #f8fafc;
+			box-shadow: inset 0 0 0 1px #e2e8f0;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			gap: 12px;
+		}
+
+		.course-priority-copy {
+			flex: 1;
+			min-width: 0;
+		}
+
+		.course-priority-title {
+			color: #1f2937;
+			font-size: 14px;
+			font-weight: 700;
+		}
+
+		.course-priority-description {
+			margin-top: 4px;
+			color: #64748b;
+			font-size: 12px;
+			line-height: 1.4;
+		}
+
+		.course-priority-btn {
+			flex: 0 0 auto;
+			padding: 8px 10px;
+			border-radius: 10px;
+			background: #2563eb;
+			color: #fff;
+			font-size: 12px;
+			font-weight: 700;
+			white-space: nowrap;
+
+			&.active {
+				background: #dcfce7;
+				color: #15803d;
+				box-shadow: inset 0 0 0 1px #bbf7d0;
 			}
 		}
 
