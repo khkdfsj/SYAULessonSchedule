@@ -3,13 +3,13 @@
 /**
  * 今日课程查询接口
  *
- * @version 1.0.0
- * @desc 根据学号返回当天（或指定星期）的课程，含夏季/冬季作息表自动切换、假期跳周、学期间隙智能回退。开学日期固定为春季3月2日/秋季9月1日
+ * @version 1.1.0
+ * @desc 根据学号返回当天（或指定星期）的课程，含夏季/冬季作息表自动切换、假期跳周、假期自动切换新学期视角（未开学时返回新学期第1周课表预览）。开学日期固定为春季3月2日/秋季9月1日
  */
 
 // ======================== 配置常量 ========================
 
-define('API_VERSION', '1.0.0');
+define('API_VERSION', '1.1.0');
 define('REMOTE_API_URL', 'https://debug.91nongye.cn/LessonSchedule/curlGetSyauInfo.php');
 define('REMOTE_TIMEOUT_CONNECT', 5);
 define('REMOTE_TIMEOUT_TOTAL', 10);
@@ -129,6 +129,16 @@ try {
     $currentWeek  = resolveCurrentWeek($input['currentWeek'] ?? null, $remoteData['courseInfo']);
     $targetDay    = resolveTargetDayOfWeek($input['targetDayOfWeek'] ?? null);
     $targetDate   = resolveTargetDate($targetDay, $currentWeek);
+    // 手动指定星期 + 自动计算教学周时，目标日期可能落在下一教学周
+    // （如周日晚查"明天"=周一，顺延到下周），需将过滤与展示用的教学周同步为按目标日期计算的周次
+    if (($targetDay['source'] ?? '') === 'manual'
+        && ($currentWeek['source'] ?? '') === 'auto_calculated'
+        && empty($currentWeek['vacation'])) {
+        $targetWeek = computeWeekForDate($targetDate, $currentWeek);
+        if ($targetWeek !== (int) $currentWeek['week']) {
+            $currentWeek['week'] = $targetWeek;
+        }
+    }
     $schedule     = getCurrentSchedule($targetDate);
     $scheduleType = getScheduleType($targetDate);
     $courses      = filterCourses($remoteData, $targetDay['num'], $currentWeek['week']);
@@ -137,7 +147,7 @@ try {
 
     $elapsedMs = (int)((microtime(true) - $startTime) * 1000);
     logRequest($input, $requestId, 200, $elapsedMs, $remoteData['_timing'] ?? null, count($courses));
-    $isToday = ($currentWeek['source'] === 'auto_calculated') && ($targetDay['source'] === 'auto');
+    $isToday = ($currentWeek['source'] === 'auto_calculated') && ($targetDay['source'] === 'auto') && empty($currentWeek['vacation']);
     jsonSuccess($data, count($courses), $requestId, $elapsedMs, $isToday);
 
 } catch (RuntimeException $e) {
@@ -297,7 +307,8 @@ function resolveTargetDayOfWeek($param): array
  * 根据教学周和星期几计算目标日期
  *
  * - 手动传入 currentWeek 时：根据开学日期 + (周次-1)*7 + (星期-1) 精确计算
- * - 自动计算 currentWeek 时：使用当天日期，按 targetDayOfWeek 在本周内调整
+ * - 自动计算且处于假期（vacation）时：同样按开学日期锚定，展示新学期第1周
+ * - 其余自动情况：使用当天日期，按 targetDayOfWeek 在本周内调整
  *
  * @param array $targetDay  resolveTargetDayOfWeek 的返回值
  * @param array $currentWeek resolveCurrentWeek 的返回值
@@ -307,8 +318,10 @@ function resolveTargetDate(array $targetDay, array $currentWeek): DateTime
 {
     $today = new DateTime('today', new DateTimeZone('Asia/Shanghai'));
 
-    // 手动传入 currentWeek 时，根据开学日期精确计算目标日期
-    if ($currentWeek['source'] === 'manual' && isset($currentWeek['semesterStartDate'])) {
+    // 手动传入 currentWeek 或假期中自动切换为新学期视角时，根据开学日期精确计算目标日期
+    $anchorToSemester = isset($currentWeek['semesterStartDate'])
+        && (($currentWeek['source'] ?? '') === 'manual' || !empty($currentWeek['vacation']));
+    if ($anchorToSemester) {
         $semesterStart = clone $currentWeek['semesterStartDate'];
         $semesterStart->setTime(0, 0, 0);
         // 开学日（周一）+ (周次-1)*7 + (星期-1) 天
@@ -318,13 +331,18 @@ function resolveTargetDate(array $targetDay, array $currentWeek): DateTime
         return $targetDate;
     }
 
-    // 自动计算 currentWeek 时，使用当天日期，按 targetDayOfWeek 在本周内调整
+    // 自动计算 currentWeek 时，使用当天日期，按 targetDayOfWeek 调整到下一个该星期几：
+    // 本周内该星期尚未到（diff >= 0）则本周取，本周已过（diff < 0）则顺延到下周，
+    // 避免返回本周已过去的日期（如周日晚查"明天"=周一，应返回下周一而非本周一）
     $targetDate = clone $today;
     if ($targetDay['source'] === 'manual') {
         $todayDow = (int) $today->format('N');
         $diff = $targetDay['num'] - $todayDow;
+        if ($diff < 0) {
+            $diff += 7;
+        }
         if ($diff !== 0) {
-            $targetDate->modify($diff > 0 ? "+{$diff} days" : "{$diff} days");
+            $targetDate->modify("+{$diff} days");
         }
     }
     return $targetDate;
@@ -359,6 +377,7 @@ function resolveCurrentWeek($param, ?array $courseInfo = null): array
         'semesterTerm' => $result['semesterTerm'],
         'semesterStartDate' => $result['semesterStartDate'],
         'semesterType' => $result['semesterType'],
+        'vacation' => !empty($result['vacation']),
     ];
 }
 
@@ -388,40 +407,22 @@ function autoCalculateWeek(?array $courseInfo = null): array
     $warnings = [];
 
     if ($today < $semesterInfo['date']) {
-        $prevSemester = getPreviousSemesterStart($year, $semesterInfo['semesterType']);
-
-        if ($prevSemester !== null && $today >= $prevSemester['date']) {
-            $diff = (int) $today->diff($prevSemester['date'])->days;
-            $rawWeek = (int) floor($diff / 7) + 1;
-            $week = applyHolidaySkips($rawWeek, $prevSemester['semesterType'], $warnings);
-            $prevDisplay = formatSemesterDisplay($prevSemester['semesterType'], $prevSemester['semesterYear']);
-
-            if ($week < 1) $week = 1;
-            if ($week > MAX_TEACHING_WEEK) {
-                $week = MAX_TEACHING_WEEK;
-                $warnings[] = '教学周已超过最大周数限制，已截断至第' . MAX_TEACHING_WEEK . '周';
-            }
-
-            $label = $prevSemester['semesterType'] === 'fall' ? '秋季' : '春季';
-            $warnings[] = '当前处于' . $label . '学期末/假期中，周次为估算值';
-
-            return [
-                'week' => $week,
-                'warning' => implode('；', $warnings),
-                'semesterYear' => $prevDisplay['semesterYear'],
-                'semesterTerm' => $prevDisplay['semesterTerm'],
-                'semesterStartDate' => $prevSemester['date'],
-                'semesterType' => $prevSemester['semesterType'],
-            ];
-        }
+        // 假期中（未开学）：不再回退上一学期估算周次，直接切换为新学期视角，
+        // 返回新学期第1周课表预览；调用方可通过 semesterStatus=vacation 识别假期态
+        $daysToStart = max((int) $today->diff($semesterInfo['date'])->days, 0);
 
         return [
             'week' => 1,
-            'warning' => '当前日期在学期开始前，默认返回第1周。请手动传入 currentWeek 参数',
+            'warning' => sprintf(
+                '假期中：%s 开学（还有%d天），已自动切换为新学期视角，显示第1周课表',
+                $semesterInfo['date']->format('Y-m-d'),
+                $daysToStart
+            ),
             'semesterYear' => $semesterDisplay['semesterYear'],
             'semesterTerm' => $semesterDisplay['semesterTerm'],
             'semesterStartDate' => $semesterInfo['date'],
             'semesterType' => $semesterInfo['semesterType'],
+            'vacation' => true,
         ];
     }
 
@@ -443,6 +444,7 @@ function autoCalculateWeek(?array $courseInfo = null): array
         'semesterTerm' => $semesterDisplay['semesterTerm'],
         'semesterStartDate' => $semesterInfo['date'],
         'semesterType' => $semesterInfo['semesterType'],
+        'vacation' => false,
     ];
 }
 
@@ -639,28 +641,6 @@ function resolveCandidatesByCourseMatch(array $candidates, array $courseInfo): a
     }, $candidates);
 }
 
-function getPreviousSemesterStart(int $currentYear, string $currentType): ?array
-{
-    $fallbackMonth = ($currentType === 'spring') ? FALL_FALLBACK_MONTH : SPRING_FALLBACK_MONTH;
-    $fallbackDay = ($currentType === 'spring') ? FALL_FALLBACK_DAY : SPRING_FALLBACK_DAY;
-    $refYear = ($currentType === 'spring') ? $currentYear - 1 : $currentYear;
-
-    $refDate = new DateTime(sprintf('%04d-%02d-%02d', $refYear, $fallbackMonth, $fallbackDay), new DateTimeZone('Asia/Shanghai'));
-    $originalDow = (int) $refDate->format('N');
-    if ($originalDow !== 1) {
-        $refDate->modify('-' . ($originalDow - 1) . ' days');
-    }
-    $refDate->setTime(0, 0, 0);
-
-    return [
-        'date' => clone $refDate,
-        'alignmentOffset' => 0,
-        'semesterType' => ($currentType === 'spring') ? 'fall' : 'spring',
-        'semesterYear' => $refYear,
-        'detectionMethod' => 'fallback',
-    ];
-}
-
 function applyHolidaySkips(int $rawWeek, string $semesterType, array &$warnings): int
 {
     $skipWeeks = HOLIDAY_SKIP_WEEKS[$semesterType] ?? [];
@@ -682,6 +662,36 @@ function applyHolidaySkips(int $rawWeek, string $semesterType, array &$warnings)
     }
 
     return $rawWeek - $adjustment;
+}
+
+/**
+ * 根据目标日期重新计算教学周（与 autoCalculateWeek 同一套公式）
+ *
+ * 仅在"手动指定 targetDayOfWeek + 自动计算教学周"时调用：目标日期可能已顺延到
+ * 下一教学周（如周日晚查"明天"=周一），此时过滤课程与展示的周次都应基于目标日期，
+ * 而非今天的周次。
+ *
+ * @param DateTime $targetDate 已解析的目标日期（0点0分）
+ * @param array $currentWeek resolveCurrentWeek 的返回值（需含 semesterStartDate / semesterType / week）
+ * @return int 目标日期对应的教学周
+ */
+function computeWeekForDate(DateTime $targetDate, array $currentWeek): int
+{
+    $semesterStart = $currentWeek['semesterStartDate'] ?? null;
+    if (!$semesterStart instanceof DateTime) {
+        return (int) ($currentWeek['week'] ?? 1);
+    }
+
+    $diffDays = (int) $targetDate->diff($semesterStart)->days;
+    $rawWeek = (int) floor($diffDays / 7) + 1;
+
+    $warnings = [];
+    $week = applyHolidaySkips($rawWeek, $currentWeek['semesterType'] ?? 'fall', $warnings);
+
+    if ($week < 1) $week = 1;
+    if ($week > MAX_TEACHING_WEEK) $week = MAX_TEACHING_WEEK;
+
+    return $week;
 }
 
 // ======================== 远程调用 ========================
@@ -920,6 +930,8 @@ function buildResponseData(array $input, array $targetDay, array $currentWeek, s
         'scheduleType' => $scheduleType,
         'semesterYear' => $currentWeek['semesterYear'],
         'semesterTerm' => $currentWeek['semesterTerm'],
+        'semesterStartDate' => isset($currentWeek['semesterStartDate']) ? $currentWeek['semesterStartDate']->format('Y-m-d') : '',
+        'semesterStatus' => !empty($currentWeek['vacation']) ? 'vacation' : 'in_session',
         'totalCourses' => count($courses),
         'totalPeriods' => $totalPeriods,
         'source' => $remoteData['source'] ?? '未知来源',
@@ -943,11 +955,14 @@ function buildTextMessage(array $courses, array $targetDay, array $currentWeek, 
     $scheduleLabel = $scheduleType === 'summer' ? '夏季作息' : '冬季作息';
 
     // 判断目标日期是否为今天（仅当 currentWeek 和 targetDay 均为自动时才可能是今天）
-    $isToday = ($currentWeek['source'] === 'auto_calculated') && ($targetDay['source'] === 'auto');
+    $isToday = ($currentWeek['source'] === 'auto_calculated') && ($targetDay['source'] === 'auto') && empty($currentWeek['vacation']);
 
     $lines = [];
-    // 头部：日期 + 教学周 + 作息
-    $lines[] = "{$month}月{$day}日 星期{$weekDayName} | 第{$currentWeek['week']}教学周 | {$scheduleLabel}";
+    // 头部：日期 + 教学周 + 作息（假期态附加预览标记）
+    $weekLabel = empty($currentWeek['vacation'])
+        ? "第{$currentWeek['week']}教学周"
+        : "第{$currentWeek['week']}教学周·假期预览";
+    $lines[] = "{$month}月{$day}日 星期{$weekDayName} | {$weekLabel} | {$scheduleLabel}";
     $lines[] = str_repeat('━', 20);
 
     if (empty($courses)) {
@@ -992,10 +1007,13 @@ function buildQuickText(array $courses, array $targetDay, array $currentWeek, Da
     $month = (int) $targetDate->format('n');
     $day   = (int) $targetDate->format('j');
     $weekDayName = getWeekdayName($targetDay['num']);
-    $isToday = ($currentWeek['source'] === 'auto_calculated') && ($targetDay['source'] === 'auto');
+    $isToday = ($currentWeek['source'] === 'auto_calculated') && ($targetDay['source'] === 'auto') && empty($currentWeek['vacation']);
 
     $lines = [];
-    $lines[] = "{$month}月{$day}日 周{$weekDayName} | 第{$currentWeek['week']}教学周";
+    $weekLabel = empty($currentWeek['vacation'])
+        ? "第{$currentWeek['week']}教学周"
+        : "第{$currentWeek['week']}教学周·假期预览";
+    $lines[] = "{$month}月{$day}日 周{$weekDayName} | {$weekLabel}";
     $lines[] = str_repeat('━', 20);
 
     if (empty($courses)) {
