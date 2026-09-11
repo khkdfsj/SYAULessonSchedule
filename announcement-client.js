@@ -8,8 +8,6 @@
   let requestPromise = null
   let scheduledTimer = null
   let moduleLoaded = false
-  let sharedAdminState = null
-  let sharedAdminRequest = null
 
   const readJson = (value) => {
     if (!value) return null
@@ -105,15 +103,47 @@
     })
   }
 
+  const appendLinkifiedText = (element, value) => {
+    const text = String(value || '')
+    const urlPattern = /https?:\/\/[^\s<>"']+/gi
+    const trailingPunctuation = /[.,;:!?\)\]\}\u3002\uff0c\uff1b\uff1a\uff01\uff1f\u3001\uff09\u3011]$/
+    let cursor = 0
+    let match
+
+    element.replaceChildren()
+    while ((match = urlPattern.exec(text)) !== null) {
+      let url = match[0]
+      let suffix = ''
+      while (url && trailingPunctuation.test(url)) {
+        suffix = url.slice(-1) + suffix
+        url = url.slice(0, -1)
+      }
+      if (!url) continue
+
+      element.appendChild(document.createTextNode(text.slice(cursor, match.index)))
+      const link = document.createElement('a')
+      link.className = 'lesson-dialog-link'
+      link.href = url
+      link.target = '_blank'
+      link.rel = 'noopener noreferrer'
+      link.textContent = url
+      element.appendChild(link)
+      if (suffix) element.appendChild(document.createTextNode(suffix))
+      cursor = match.index + match[0].length
+    }
+    element.appendChild(document.createTextNode(text.slice(cursor)))
+  }
+
   const installOverlayStyle = (overlayId) => {
     const style = document.createElement('style')
     style.dataset.lessonOverlay = overlayId
     style.textContent = `
-      #${overlayId}{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:22px;background:rgba(15,23,42,.58);box-sizing:border-box}
-      #${overlayId} .lesson-dialog-card{width:min(520px,100%);max-height:82vh;display:flex;flex-direction:column;overflow:hidden;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.28);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
-      #${overlayId} .lesson-dialog-title{padding:22px 24px 14px;text-align:center;font-size:21px;font-weight:700;color:#172033}
-      #${overlayId} .lesson-dialog-content{padding:0 24px 22px;overflow-y:auto;white-space:pre-wrap;font-size:15px;line-height:1.75;color:#4b5563}
-      #${overlayId} .lesson-dialog-signature{padding:0 24px 22px;text-align:right;white-space:pre-wrap;font-size:14px;line-height:1.7;color:#64748b}
+      #${overlayId}{position:fixed;inset:0;z-index:2147483647;display:flex;max-width:100vw;align-items:center;justify-content:center;padding:22px;overflow:hidden;background:rgba(15,23,42,.58);box-sizing:border-box}
+      #${overlayId} .lesson-dialog-card{width:min(520px,calc(100vw - 44px));max-width:calc(100vw - 44px);min-width:0;max-height:82vh;display:flex;flex:0 1 auto;flex-direction:column;overflow:hidden;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.28);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+      #${overlayId} .lesson-dialog-title{max-width:100%;min-width:0;padding:22px 24px 14px;text-align:center;font-size:21px;font-weight:700;color:#172033;overflow-wrap:anywhere;word-break:break-word}
+      #${overlayId} .lesson-dialog-content{max-width:100%;min-width:0;padding:0 24px 22px;overflow-x:hidden;overflow-y:auto;white-space:pre-wrap;font-size:15px;line-height:1.75;color:#4b5563;overflow-wrap:anywhere;word-break:break-word}
+      #${overlayId} .lesson-dialog-link{color:#1684fc;font-weight:600;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px;overflow-wrap:anywhere;word-break:break-all}
+      #${overlayId} .lesson-dialog-signature{max-width:100%;min-width:0;padding:0 24px 22px;text-align:right;white-space:pre-wrap;font-size:14px;line-height:1.7;color:#64748b;overflow-wrap:anywhere;word-break:break-word}
       #${overlayId} .lesson-dialog-confirm{flex:0 0 auto;height:54px;border:0;border-top:1px solid #e5e7eb;background:#fff;color:#1684fc;font-size:17px;font-weight:600}
       #${overlayId} .lesson-dialog-confirm:active{background:#f8fafc}
     `
@@ -135,7 +165,7 @@
         <button type="button" class="lesson-dialog-confirm">知道了</button>
       </div>`
     overlay.querySelector('.lesson-dialog-title').textContent = title
-    overlay.querySelector('.lesson-dialog-content').textContent = content
+    appendLinkifiedText(overlay.querySelector('.lesson-dialog-content'), content)
     const signatureElement = overlay.querySelector('.lesson-dialog-signature')
     signatureElement.textContent = signature
     signatureElement.hidden = !signature
@@ -199,44 +229,6 @@
     }
     showNightNotice()
   }
-
-  const injectAnnouncementAdminEntry = () => {
-    if (sharedAdminState !== true || document.querySelector('.announcement-entry')) return
-    const pageTitle = Array.from(document.querySelectorAll('.nav-title')).find((element) => element.textContent.trim() === '开发日志')
-    const hero = pageTitle?.closest('.page')?.querySelector('.hero')
-    if (!hero) return
-    const entry = document.createElement('div')
-    entry.className = 'announcement-entry'
-    entry.innerHTML = '<strong>公告推送管理</strong><b>›</b>'
-    entry.addEventListener('click', () => { window.location.href = '/LessonSchedule/announcement-admin.html?v=20260812-7' })
-    const style = document.createElement('style')
-    style.textContent = '.announcement-entry{margin-top:9px;padding:13px 14px;display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,.92);border-radius:14px;box-shadow:0 7px 17px rgba(15,23,42,.06);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}.announcement-entry strong{font-size:14px;color:#1e293b}.announcement-entry b{font-size:24px;font-weight:400;color:#64748b}'
-    document.head.appendChild(style)
-    hero.insertAdjacentElement('afterend', entry)
-  }
-
-  const syncAnnouncementAdminEntry = () => {
-    injectAnnouncementAdminEntry()
-    if (sharedAdminState !== null || sharedAdminRequest) return
-    const isDevlogPage = Array.from(document.querySelectorAll('.nav-title')).some((element) => element.textContent.trim() === '开发日志')
-    if (!isDevlogPage) return
-    const session = readLocalSession()
-    if (!session) {
-      sharedAdminState = false
-      return
-    }
-    sharedAdminRequest = postJson(SESSION_API_URL, {
-      action: 'session',
-      user_id: session.userId,
-      auth_exp: session.authExp,
-      auth_sig: session.authSig
-    }).then((payload) => {
-      sharedAdminState = payload?.data?.authenticated === true && payload?.data?.is_admin === true
-      injectAnnouncementAdminEntry()
-    }).catch(() => { sharedAdminState = false }).finally(() => { sharedAdminRequest = null })
-  }
-
-  new MutationObserver(syncAnnouncementAdminEntry).observe(document.documentElement, { childList: true, subtree: true })
 
   window.LessonScheduleAnnouncements = {
     bootstrap,
