@@ -67,11 +67,14 @@
 							</view>
 						</template>
 						<template v-for="item in getWeekCourseRenderList(panel.week)" :key="item.renderKey">
-							<view class="course-item" :class="{ 'is-conflict': item.isConflict }"
+							<view class="course-item" :class="{ 'is-conflict': item.isConflict, 'is-adjusted': item.isScheduleAdjustment || item.hasScheduleAdjustment }"
 								:style="getCourseItemStyle(item)">
 								<view class="course-item__content ripple-host ripple-clip" :style="getCourseCardStyle(item)"
 									@click="GetCourseDetails(item, $event)">
-									<view v-if="item.isConflict" class="course-conflict-badge">冲突</view>
+									<view v-if="item.isConflict || item.isScheduleAdjustment || item.hasScheduleAdjustment" class="course-status-badges">
+										<view v-if="item.isConflict" class="course-status-badge conflict">冲突</view>
+										<view v-if="item.isScheduleAdjustment || item.hasScheduleAdjustment" class="course-status-badge adjusted">调课</view>
+									</view>
 									<view class="course-item__content_name">
 										{{ item.name || '未知课程' }}
 									</view>
@@ -157,6 +160,14 @@
 					</view>
 					<view v-if="hasDetailedCourseConflict" class="course-conflict-tip">
 						当前时间段存在多门课程，点击“切换”可查看其他课程。
+					</view>
+					<view v-if="DetailedCourseData.isScheduleAdjustment" class="course-adjustment-tip">
+						<view class="course-adjustment-title">调整后的课程</view>
+						<view>{{ getScheduleAdjustmentSummary(DetailedCourseData) }}</view>
+						<view v-if="DetailedCourseData.scheduleAdjustment?.noticeTitle" class="course-adjustment-notice"
+							@click.stop="openScheduleAdjustmentNotice(DetailedCourseData)">
+							{{ DetailedCourseData.scheduleAdjustment.noticeTitle }}<text v-if="DetailedCourseData.scheduleAdjustment?.noticeUrl"> · 查看通知</text>
+						</view>
 					</view>
 					<view class="course-Introduce">
 						<p class="course-Introduce-text"> 星期{{ ScheduleData.weekIndexText[DetailedCourseData.week - 1] || '-' }}
@@ -746,11 +757,12 @@ const buildWeekCourseGroups = (weekNumber) => {
 				weekDay,
 				...distinctCourses.map(getCourseConflictIdentity).sort()
 			].join('|')
-			renderGroups.push({
-				...preferredCourse,
+				renderGroups.push({
+					...preferredCourse,
 				section: `${startSection}`,
 				sectionCount: `${endSection - startSection + 1}`,
-				isConflict: true,
+					isConflict: true,
+					hasScheduleAdjustment: distinctCourses.some(item => !!item.isScheduleAdjustment),
 				conflictGroupKey: groupKey,
 				conflictCourses: distinctCourses,
 				conflictCount: distinctCourses.length
@@ -1260,14 +1272,17 @@ const handleEmptySlotTap = (slot, event) => {
 const getCourseCardStyle = (course) => {
 	const cardColor = ScheduleData.value.courseColor[course?.name] || '#dbeafe'
 	const isConflict = !!course?.isConflict
+	const isAdjusted = !!course?.isScheduleAdjustment || !!course?.hasScheduleAdjustment
 	return {
 		backgroundColor: hexToRgba(cardColor, 0.56),
 		color: darkenColor(cardColor, 0.42),
-		'--course-border-color': isConflict ? '#ef4444' : 'rgba(255, 255, 255, 0.78)',
-		'--course-border-width': isConflict ? '2px' : '1px',
+		'--course-border-color': isConflict ? '#ef4444' : (isAdjusted ? '#2563eb' : 'rgba(255, 255, 255, 0.78)'),
+		'--course-border-width': isConflict || isAdjusted ? '2px' : '1px',
 		'--course-glass-shadow': isConflict
 			? `0 0 0 1px rgba(239, 68, 68, 0.18), 0 8px 20px ${hexToRgba(cardColor, 0.2)}`
-			: `0 8px 20px ${hexToRgba(cardColor, 0.2)}`,
+			: (isAdjusted
+				? `0 0 0 1px rgba(37, 99, 235, 0.16), 0 8px 20px ${hexToRgba(cardColor, 0.2)}`
+				: `0 8px 20px ${hexToRgba(cardColor, 0.2)}`),
 		'--course-name-size': `${layoutMetrics.value.nameFontSize}px`,
 		'--course-meta-size': `${layoutMetrics.value.metaFontSize}px`,
 		'--course-card-padding-x': `${layoutMetrics.value.cardPaddingX}px`,
@@ -1333,6 +1348,31 @@ const selectDetailedConflictCourse = (course, index = -1) => {
 		: detailedConflictCourses.value.findIndex(item => getCourseOccurrenceIdentity(item) === getCourseOccurrenceIdentity(course))
 	detailedConflictIndex.value = resolvedIndex >= 0 ? resolvedIndex : 0
 	prepareDetailedCourseServices(course)
+}
+
+const formatAdjustmentDate = (value) => {
+	const matched = `${value || ''}`.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+	if (!matched) return ''
+	return `${matched[1]}年${Number(matched[2])}月${Number(matched[3])}日`
+}
+
+const getScheduleAdjustmentSummary = (course) => {
+	const adjustment = course?.scheduleAdjustment || {}
+	const sourceDay = ScheduleData.value.weekIndexText[(Number(adjustment.sourceWeekday) || 1) - 1] || '-'
+	const targetDay = ScheduleData.value.weekIndexText[(Number(adjustment.targetWeekday) || 1) - 1] || '-'
+	const sourceDate = formatAdjustmentDate(adjustment.sourceDate)
+	const targetDate = formatAdjustmentDate(adjustment.targetDate)
+	const sourceText = `第${adjustment.sourceWeek || '-'}周周${sourceDay}${sourceDate ? `（${sourceDate}）` : ''}`
+	const targetText = `第${adjustment.targetWeek || '-'}周周${targetDay}${targetDate ? `（${targetDate}）` : ''}`
+	return `本课程由${sourceText}调整至${targetText}，上课节次、地点及任课教师以当前课程信息为准。`
+}
+
+const openScheduleAdjustmentNotice = (course) => {
+	const url = `${course?.scheduleAdjustment?.noticeUrl || ''}`.trim()
+	if (!/^https?:\/\//i.test(url)) return
+	if (typeof window !== 'undefined') {
+		window.location.href = url
+	}
 }
 
 const GetCourseDetails = (course, event) => {
@@ -3253,19 +3293,35 @@ onUnmounted(() => {
 						white-space: normal;
 					}
 
-					.course-conflict-badge {
+					.course-status-badges {
 						position: absolute;
 						top: 2px;
 						right: 2px;
 						z-index: 2;
+						display: flex;
+						flex-direction: column;
+						align-items: flex-end;
+						gap: 2px;
+					}
+
+					.course-status-badge {
 						padding: 1px 3px;
 						border-radius: 5px;
-						background: #dc2626;
 						color: #fff;
 						font-size: 8px;
 						font-weight: 700;
 						line-height: 1.25;
+						white-space: nowrap;
+					}
+
+					.course-status-badge.conflict {
+						background: #dc2626;
 						box-shadow: 0 2px 6px rgba(153, 27, 27, 0.3);
+					}
+
+					.course-status-badge.adjusted {
+						background: #2563eb;
+						box-shadow: 0 2px 6px rgba(30, 64, 175, 0.28);
 					}
 
 					.course-item__content_address {
@@ -3496,6 +3552,30 @@ onUnmounted(() => {
 			color: #9a3412;
 			font-size: 12px;
 			line-height: 1.45;
+		}
+
+		.course-adjustment-tip {
+			margin-top: 9px;
+			padding: 10px 11px;
+			border-radius: 10px;
+			background: #eff6ff;
+			box-shadow: inset 0 0 0 1px #bfdbfe;
+			color: #1e3a8a;
+			font-size: 12px;
+			line-height: 1.55;
+		}
+
+		.course-adjustment-title {
+			margin-bottom: 3px;
+			font-weight: 700;
+			color: #1d4ed8;
+		}
+
+		.course-adjustment-notice {
+			margin-top: 7px;
+			color: #2563eb;
+			font-weight: 600;
+			word-break: break-word;
 		}
 
 		.course-Introduce {

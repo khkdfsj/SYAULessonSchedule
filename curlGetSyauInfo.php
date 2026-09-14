@@ -4,6 +4,8 @@ ini_set("display_errors", "On");
 error_reporting(E_ALL);
 header("Content-Type: application/json;charset=utf-8");
 
+require_once __DIR__ . '/schedule_adjustment_lib.php';
+
 // 数据库配置
 define('DB_HOST', '127.0.0.1');
 define('DB_PORT', 3306);
@@ -12,7 +14,7 @@ define('DB_PASS', 'syau8848@');
 define('DB_NAME', 'LessonTable');
 
 // 应用版本号（版本管理：前端每次进入校验 appVersion，非最新强制更新）
-define('APP_VERSION', '0.5.2');
+define('APP_VERSION', '0.5.3');
 
 // 学校课表接口夜间不可用：22:00-06:00 强制读取数据库缓存，不访问上游。
 define('QUIET_START', '22:00');
@@ -309,7 +311,7 @@ function isCurrentSemesterCache($record, $userID)
     }
 
     $identityDigit = substr((string) $userID, 4, 1);
-    if (!in_array($identityDigit, ['1', '5', '6'], true)) {
+    if (!in_array($identityDigit, ['1', '2', '5', '6'], true)) {
         return true;
     }
 
@@ -353,9 +355,22 @@ function updateScheduleCache($conn, $userID, $courseInfo)
 /**********************
  * 核心业务处理函数
  **********************/
-function sendCourseResponse($userID, $courseInfo, $source)
+function sendCourseResponse($conn, $userID, $courseInfo, $source)
 {
     $courses = is_array($courseInfo) ? array_values($courseInfo) : [];
+
+    // 原始课表继续按现有缓存策略保存；调课副本仅在响应阶段按已发布规则动态生成。
+    // 规则停用后无需清理用户缓存，教师身份也不会进入调课匹配。
+    $calendar = fetchCalendarInfo();
+    if ($calendar !== null) {
+        $courses = applyPublishedScheduleAdjustments(
+            $conn,
+            (string) $userID,
+            $courses,
+            (string) $calendar['mark'],
+            (string) $calendar['start_date']
+        );
+    }
     $message = count($courses) > 0
         ? '操作成功'
         : '当前无课程信息，请时刻关注教务处官方信息';
@@ -368,7 +383,6 @@ function sendCourseResponse($userID, $courseInfo, $source)
     ];
 
     // 方案B：从同机校历服务获取本学期开学日期并下发（前端服务端优先，强制采用）
-    $calendar = fetchCalendarInfo();
     if ($calendar !== null) {
         $data['semesterStartDate'] = $calendar['start_date'];
         $data['semesterMark'] = $calendar['mark'];
@@ -423,7 +437,7 @@ function handleExistingUser($conn, $userID)
     if (isQuietTime()) {
         $cacheRecord = getScheduleCacheRecord($conn, $userID);
         if (isCurrentSemesterCache($cacheRecord, $userID)) {
-            sendCourseResponse($userID, $cacheRecord['courses'], '非api在线时间，数据库缓存');
+            sendCourseResponse($conn, $userID, $cacheRecord['courses'], '非api在线时间，数据库缓存');
         }
 
         sendResponse(503, '当前为夜间缓存时段，暂无本学期可用课表缓存，请在白天重新进入', [
@@ -437,13 +451,13 @@ function handleExistingUser($conn, $userID)
 
     $cacheRecord = getScheduleCacheRecord($conn, $userID);
     if (isFreshDayCache($cacheRecord, $userID)) {
-        sendCourseResponse($userID, $cacheRecord['courses'], '学校数据短时缓存');
+        sendCourseResponse($conn, $userID, $cacheRecord['courses'], '学校数据短时缓存');
     }
 
     list($ok, $courseInfo, $failureReason) = fetchOnlineSchedule($userID);
     if ($ok) {
         updateScheduleCache($conn, $userID, $courseInfo);
-        sendCourseResponse($userID, $courseInfo, '学校实时数据');
+        sendCourseResponse($conn, $userID, $courseInfo, '学校实时数据');
     }
 
     if (strpos($failureReason, '学校网关') !== 0) {
@@ -451,7 +465,7 @@ function handleExistingUser($conn, $userID)
     }
     $cacheRecord = getScheduleCacheRecord($conn, $userID);
     if (isCurrentSemesterCache($cacheRecord, $userID)) {
-        sendCourseResponse($userID, $cacheRecord['courses'], '实时请求失败，使用本学期数据库缓存');
+        sendCourseResponse($conn, $userID, $cacheRecord['courses'], '实时请求失败，使用本学期数据库缓存');
     }
 
     sendResponse(503, $cacheRecord === null ? '课表服务暂不可用，请稍后重试' : '旧学期课表已停止显示，请稍后重试获取本学期课表', [
@@ -480,7 +494,7 @@ function handleNewUser($conn, $userID)
     list($ok, $courseInfo, $failureReason) = fetchOnlineSchedule($userID);
     if ($ok) {
         updateScheduleCache($conn, $userID, $courseInfo);
-        sendCourseResponse($userID, $courseInfo, '学校实时数据');
+        sendCourseResponse($conn, $userID, $courseInfo, '学校实时数据');
     }
 
     if (strpos($failureReason, '学校网关') !== 0) {

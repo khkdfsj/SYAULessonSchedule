@@ -41,7 +41,7 @@
 				<view class="row" v-if="sessionInfo.is_admin">
 					<view class="row-main">
 						<view class="row-title">管理员权限</view>
-						<view class="row-subtitle">可使用反馈、课程讨论、调试和公告管理功能。</view>
+						<view class="row-subtitle">可使用反馈、课程讨论、调试、公告和调课管理功能。</view>
 					</view>
 					<view class="row-value">{{ sessionInfo.is_super_admin ? '超级管理员' : '已启用' }}</view>
 				</view>
@@ -56,6 +56,13 @@
 					<view class="row-main">
 						<view class="row-title">管理员管理</view>
 						<view class="row-subtitle">设置管理员名称并查看管理员成员。</view>
+					</view>
+					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
+				</view>
+				<view class="row row-link" v-if="sessionInfo.is_admin && !debugState" @click="goAdminAdjustments">
+					<view class="row-main">
+						<view class="row-title">调课管理</view>
+						<view class="row-subtitle">创建并管理面向学生的课程日期调整。</view>
 					</view>
 					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
 				</view>
@@ -554,6 +561,12 @@ const goAdminDebug = () => {
 const goAdminMembers = () => {
 	uni.navigateTo({
 		url: '/pages/admin-members/index'
+	})
+}
+
+const goAdminAdjustments = () => {
+	uni.navigateTo({
+		url: '/pages/admin-adjustments/index'
 	})
 }
 

@@ -1,6 +1,6 @@
 # SYAULessonSchedule（沈农课程表）
 
-沈阳农业大学企业微信"我的课表"应用：uni-app(Vue3) H5 前端 + PHP 后端，支持白天在线、夜间缓存自动切换、课程群、公告推送、开学日期后端统一管理等。
+沈阳农业大学企业微信"我的课表"应用：uni-app(Vue3) H5 前端 + PHP 后端，支持白天在线、夜间缓存自动切换、课程群、公告推送、学生调课计划、开学日期后端统一管理等。
 
 > 仓库为私有项目，包含完整未编译源码。PHP 文件中含数据库凭据（当前为私有仓库，未脱敏）。
 
@@ -19,6 +19,7 @@
 │   └── manifest.json       # 应用配置（appid __UNI__132B5B2、版本号）
 ├── 114内网/                # 114 服务器部署包（LessonScheduleData.php 等）
 ├── curlGetSyauInfo.php     # 前端数据接口（课表获取 + 下发 semesterStartDate/appVersion）
+├── scheduleAdjustmentApi.php / schedule_adjustment_lib.php  # 调课管理与学生课表规则合并
 ├── getTodayCourse.php      # 今日课程接口（校历服务接入）
 ├── feedbackApi.php / courseCommentApi.php / courseGroupApi.php / loginApi.php / announcementApi.php  # 其余后端接口
 └── update-log.html         # 用户版开发日志
@@ -54,6 +55,13 @@ npm run dev        # vite dev server，接口经 /h5api 代理到线上 debug.91
 - 权威来源：bm 上 `syau-calendar` 校历服务（`/opt/syau-calendar`，改 `.env` 的 `MANUAL_START_DATE` 后重启生效，当前 2026-08-24）
 - 下发链路：`curlGetSyauInfo.php` 读取校历服务 → 响应 `semesterStartDate`/`semesterMark` → 前端强制采用
 - 数据来源由程序自动管理，用户不可手动切换；白天使用在线数据，22:00至次日06:00使用缓存
+
+## 学生调课计划
+
+- 管理员可在设置页进入“调课管理”，按学期、学生类型、年级、来源周/星期和目标周/星期创建多条规则。
+- 已发布规则只在课表响应阶段动态生成调课课程，不改写学校原始课表和数据库课表缓存；停止计划后自动恢复。
+- 本科生、研究生按学号身份位区分，教师不应用调课规则。
+- 调课课程使用蓝色标识；若与目标日期原课程重叠，继续使用现有红色冲突提示和课程切换逻辑。
 
 ## GitHub 分支/tag 流程（协作者规范）
 
