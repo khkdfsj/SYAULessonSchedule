@@ -1,6 +1,7 @@
 <template>
 	<view class="page-root">
-	<image class="bgImg" src="/common/images/backgroundImg.png?v=20260915" mode="aspectFill" :fade-show="false" />
+	<image class="bgImg" :src="backgroundImageSrc" mode="aspectFill" :fade-show="false"
+		@error="handleBackgroundImageError" />
 	<view class="bgMask"></view>
 	<view class="layout" :class="['mode-' + layoutMetrics.mode, animationEnabled ? 'anim-on' : 'anim-off']"
 		@click="handleGlobalTap()">
@@ -224,6 +225,8 @@
 
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted } from "vue";
+import backgroundImageWebp from "@/common/images/backgroundImg.webp"
+import backgroundImagePng from "@/common/images/backgroundImg.png"
 import {
 	getStatusBarHeight,
 	getTitleBarHeight,
@@ -273,6 +276,12 @@ const COURSE_CONFLICT_NOTICE_KEY = 'LessonSchedule.CourseConflictNotice.v1'
 const SCHEDULE_ADJUSTMENT_VIEW_KEY = 'LessonSchedule.ScheduleAdjustmentViews.v1'
 let legacyManualCacheDetected = false
 let entryNoticeSequenceStarted = false
+const backgroundImageSrc = ref(backgroundImageWebp)
+const handleBackgroundImageError = () => {
+	if (backgroundImageSrc.value !== backgroundImagePng) {
+		backgroundImageSrc.value = backgroundImagePng
+	}
+}
 const debugState = ref(getAdminDebugState())
 var ScheduleData = ref({
 	UserID: '',
