@@ -89,6 +89,8 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue';
 
+const SCHEDULE_ADJUSTMENT_VIEW_KEY = 'LessonSchedule.ScheduleAdjustmentViews.v1';
+
 const alertDialog = ref(null);
 const dailySlogan = ref('');
 const morningCourses = ref([]);
@@ -252,7 +254,25 @@ const getTodayCourses = () => {
 	console.log('今天是星期', courseWeekday, '第', currentWeek.value, '周');
 	
 	// 筛选今天的课程
-	const allCourses = scheduleData.courseList || [];
+	let allCourses = scheduleData.courseList || [];
+	const adjustedCourses = (scheduleData.onlineCourseList || []).filter(course => {
+		return course?.isScheduleAdjustment && Array.isArray(course.weeks) && course.weeks.includes(currentWeek.value)
+	});
+	if (adjustedCourses.length) {
+		const planTokens = Array.from(new Set(adjustedCourses.map(course => {
+			const adjustment = course?.scheduleAdjustment || {};
+			return `${adjustment.planId || 0}:${adjustment.planPublishedAt || ''}`;
+		}))).sort().join(',');
+		const semester = `${scheduleData.semesterMark || scheduleData.startDate || ''}`.trim();
+		const scope = `${scheduleData.UserID || ''}|${semester}|${currentWeek.value}|${planTokens}`;
+		const viewPreferences = uni.getStorageSync(SCHEDULE_ADJUSTMENT_VIEW_KEY);
+		if (viewPreferences && viewPreferences[scope] === 'original') {
+			const originalOnline = Array.isArray(scheduleData.originalOnlineCourseList)
+				? scheduleData.originalOnlineCourseList
+				: (scheduleData.onlineCourseList || []).filter(course => !course?.isScheduleAdjustment);
+			allCourses = [...originalOnline, ...(scheduleData.customCourseList || [])];
+		}
+	}
 	const todayCourses = [];
 	
 	allCourses.forEach(course => {

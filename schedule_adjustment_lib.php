@@ -149,7 +149,7 @@ function applyPublishedScheduleAdjustments(
         $stmt = $conn->prepare(
             "SELECT r.id, r.plan_id, r.education_type, r.entry_year,
                     r.source_week, r.source_weekday, r.target_week, r.target_weekday,
-                    p.name AS plan_name, p.notice_title, p.notice_url
+                    p.name AS plan_name, p.notice_title, p.notice_url, p.published_at
              FROM schedule_adjustment_rules r
              INNER JOIN schedule_adjustment_plans p ON p.id = r.plan_id
              WHERE p.status = 'published' AND p.semester_mark = ?
@@ -226,6 +226,7 @@ function applyPublishedScheduleAdjustments(
                 'ruleId' => (int) $rule['id'],
                 'planId' => (int) $rule['plan_id'],
                 'planName' => (string) $rule['plan_name'],
+                'planPublishedAt' => (string) ($rule['published_at'] ?? ''),
                 'noticeTitle' => (string) $rule['notice_title'],
                 'noticeUrl' => (string) $rule['notice_url'],
                 'sourceWeek' => $sourceWeek,

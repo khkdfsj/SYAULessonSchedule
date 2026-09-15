@@ -14,7 +14,7 @@ define('DB_PASS', 'syau8848@');
 define('DB_NAME', 'LessonTable');
 
 // 应用版本号（版本管理：前端每次进入校验 appVersion，非最新强制更新）
-define('APP_VERSION', '0.5.3');
+define('APP_VERSION', '0.5.4');
 
 // 学校课表接口夜间不可用：22:00-06:00 强制读取数据库缓存，不访问上游。
 define('QUIET_START', '22:00');
@@ -357,7 +357,8 @@ function updateScheduleCache($conn, $userID, $courseInfo)
  **********************/
 function sendCourseResponse($conn, $userID, $courseInfo, $source)
 {
-    $courses = is_array($courseInfo) ? array_values($courseInfo) : [];
+    $originalCourses = is_array($courseInfo) ? array_values($courseInfo) : [];
+    $courses = $originalCourses;
 
     // 原始课表继续按现有缓存策略保存；调课副本仅在响应阶段按已发布规则动态生成。
     // 规则停用后无需清理用户缓存，教师身份也不会进入调课匹配。
@@ -378,6 +379,7 @@ function sendCourseResponse($conn, $userID, $courseInfo, $source)
     $data = [
         'UserID' => $userID,
         'courseInfo' => $courses,
+        'originalCourseInfo' => $originalCourses,
         'source' => $source,
         'appVersion' => APP_VERSION
     ];

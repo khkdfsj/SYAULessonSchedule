@@ -8,6 +8,11 @@
 			<view class="statusBar" :style="{ height: getStatusBarHeight() + 'px' }"></view>
 			<view class="titleBar"
 				:style="{ height: getTitleBarHeight() + 'px', paddingLeft: getLeftIconLeft() + 'px' }">
+				<view v-if="currentWeekHasScheduleAdjustment" class="adjustment-view-switch ripple-host ripple-clip"
+					:class="{ original: currentScheduleViewMode === 'original' }" @click.stop="toggleScheduleAdjustmentView($event)">
+					<text>{{ currentScheduleViewMode === 'original' ? '原课表' : '调课后' }}</text>
+					<UniIcons type="loop" color="currentColor" :size="getAdjustmentSwitchIconSize()"></UniIcons>
+				</view>
 				<view class="week-switch ripple-host ripple-clip" @click="SelectWeeksPopup($event)">
 					<view class="title">第{{ ScheduleData.TemporaryWeek }}周</view>
 					<UniIcons class="icon" :class="{ open: activeSheet === 'week' && bottomSheetVisible }" type="down" color="#1f2937"
@@ -265,6 +270,7 @@ const CUSTOM_COURSE_META_KEY = 'CustomCourseMetaByUser'
 const DATA_SOURCE_MIGRATION_NOTICE_KEY = 'LessonSchedule.DataSourceAutomaticMigration.v1'
 const COURSE_CONFLICT_PREFERENCE_KEY = 'LessonSchedule.CourseConflictPreferences.v1'
 const COURSE_CONFLICT_NOTICE_KEY = 'LessonSchedule.CourseConflictNotice.v1'
+const SCHEDULE_ADJUSTMENT_VIEW_KEY = 'LessonSchedule.ScheduleAdjustmentViews.v1'
 let legacyManualCacheDetected = false
 let entryNoticeSequenceStarted = false
 const debugState = ref(getAdminDebugState())
@@ -316,6 +322,7 @@ var ScheduleData = ref({
 	courseColor: {},
 	courseList: [],
 	onlineCourseList: [],
+	originalOnlineCourseList: [],
 	customCourseList: []
 })
 
@@ -324,6 +331,10 @@ const DetailedCourseData = ref({})
 const detailedConflictCourses = ref([])
 const detailedConflictIndex = ref(0)
 const courseConflictPreferences = ref({})
+const storedAdjustmentViews = uni.getStorageSync(SCHEDULE_ADJUSTMENT_VIEW_KEY)
+const scheduleAdjustmentViewPreferences = ref(
+	storedAdjustmentViews && typeof storedAdjustmentViews === 'object' ? storedAdjustmentViews : {}
+)
 const hasDetailedCourseConflict = computed(() => detailedConflictCourses.value.length > 1)
 const canEditDetailedCourse = computed(() => !!DetailedCourseData.value?.isLocal)
 const canOpenCourseComments = computed(() => {
@@ -522,6 +533,14 @@ const parseCourseListFromResponse = (payload) => {
 	return []
 }
 
+const parseOriginalCourseListFromResponse = (payload) => {
+	const nested = payload?.data?.originalCourseInfo
+	if (Array.isArray(nested)) return nested
+	const flat = payload?.originalCourseInfo
+	if (Array.isArray(flat)) return flat
+	return parseCourseListFromResponse(payload).filter(item => !item?.isScheduleAdjustment)
+}
+
 const getCustomCourseBucket = () => {
 	const bucket = uni.getStorageSync(CUSTOM_COURSE_STORE_KEY)
 	return bucket && typeof bucket === 'object' ? bucket : {}
@@ -628,10 +647,23 @@ const extractOnlineCoursesFromCache = (cacheData) => {
 	)
 }
 
-const mergeCourseData = (onlineList, customList) => {
+const extractOriginalOnlineCoursesFromCache = (cacheData) => {
+	if (Array.isArray(cacheData?.originalOnlineCourseList)) {
+		return normalizeCourseList(cacheData.originalOnlineCourseList, 'online')
+	}
+	return extractOnlineCoursesFromCache(cacheData).filter(item => !item?.isScheduleAdjustment)
+}
+
+const mergeCourseData = (onlineList, customList, originalOnlineList) => {
 	const normalizedOnline = normalizeCourseList(onlineList, 'online')
 	const normalizedCustom = normalizeCourseList(customList, 'local')
+	const normalizedOriginal = Array.isArray(originalOnlineList)
+		? normalizeCourseList(originalOnlineList, 'online')
+		: (Array.isArray(ScheduleData.value.originalOnlineCourseList) && ScheduleData.value.originalOnlineCourseList.length
+			? ScheduleData.value.originalOnlineCourseList
+			: normalizedOnline.filter(item => !item?.isScheduleAdjustment))
 	ScheduleData.value.onlineCourseList = normalizedOnline
+	ScheduleData.value.originalOnlineCourseList = normalizedOriginal
 	ScheduleData.value.customCourseList = normalizedCustom
 	ScheduleData.value.courseList = [...normalizedOnline, ...normalizedCustom]
 	buildCourseColor(ScheduleData.value)
@@ -862,6 +894,8 @@ const getHeaderHeight = () => {
 const getWeekSwitchIconSize = () => layoutMetrics.value.mode === 'phone-portrait' ? 14 : 16
 
 const getSettingIconSize = () => layoutMetrics.value.mode === 'phone-portrait' ? 16 : 18
+
+const getAdjustmentSwitchIconSize = () => layoutMetrics.value.mode === 'phone-portrait' ? 12 : 14
 
 const getScrollViewportStyle = () => ({
 	height: `calc(100vh - ${getHeaderHeight()}px)`
@@ -1151,8 +1185,61 @@ const displayWeekPanels = computed(() => {
 	return panels
 })
 
+const getScheduleAdjustmentCoursesForWeek = (weekNumber) => {
+	return (ScheduleData.value.onlineCourseList || []).filter(item => {
+		return !!item?.isScheduleAdjustment && isCourseInWeek(item, weekNumber)
+	})
+}
+
+const getScheduleAdjustmentViewScope = (weekNumber) => {
+	const courses = getScheduleAdjustmentCoursesForWeek(weekNumber)
+	if (!courses.length) return ''
+	const planTokens = Array.from(new Set(courses.map(item => {
+		const adjustment = item?.scheduleAdjustment || {}
+		return `${adjustment.planId || 0}:${adjustment.planPublishedAt || ''}`
+	}))).sort().join(',')
+	const userId = `${ScheduleData.value.UserID || ''}`.trim()
+	const semester = `${ScheduleData.value.semesterMark || ScheduleData.value.startDate || getCurrentSemesterMark()}`.trim()
+	return userId && semester ? `${userId}|${semester}|${weekNumber}|${planTokens}` : ''
+}
+
+const getScheduleAdjustmentViewMode = (weekNumber) => {
+	const scope = getScheduleAdjustmentViewScope(weekNumber)
+	return scope && scheduleAdjustmentViewPreferences.value?.[scope] === 'original' ? 'original' : 'adjusted'
+}
+
+const currentWeekHasScheduleAdjustment = computed(() => {
+	return !!getScheduleAdjustmentViewScope(clampWeekNumber(ScheduleData.value.TemporaryWeek || 1))
+})
+
+const currentScheduleViewMode = computed(() => {
+	return getScheduleAdjustmentViewMode(clampWeekNumber(ScheduleData.value.TemporaryWeek || 1))
+})
+
+const toggleScheduleAdjustmentView = (event) => {
+	triggerRipple(event)
+	const weekNumber = clampWeekNumber(ScheduleData.value.TemporaryWeek || 1)
+	const scope = getScheduleAdjustmentViewScope(weekNumber)
+	if (!scope) return
+	const nextMode = getScheduleAdjustmentViewMode(weekNumber) === 'original' ? 'adjusted' : 'original'
+	const nextPreferences = { ...scheduleAdjustmentViewPreferences.value }
+	if (nextMode === 'original') nextPreferences[scope] = 'original'
+	else delete nextPreferences[scope]
+	scheduleAdjustmentViewPreferences.value = nextPreferences
+	uni.setStorageSync(SCHEDULE_ADJUSTMENT_VIEW_KEY, nextPreferences)
+	uni.showToast({
+		title: nextMode === 'original' ? '已切换至原课表' : '已切换至调课后',
+		icon: 'none',
+		duration: 1200
+	})
+}
+
 const getWeekCourses = (weekNumber) => {
-	return ScheduleData.value.courseList.filter(item => {
+	const onlineCourses = getScheduleAdjustmentViewMode(weekNumber) === 'original'
+		? (ScheduleData.value.originalOnlineCourseList || [])
+		: (ScheduleData.value.onlineCourseList || [])
+	const activeCourses = [...onlineCourses, ...(ScheduleData.value.customCourseList || [])]
+	return activeCourses.filter(item => {
 		return isCourseInWeek(item, weekNumber) && Number(item.week) <= ScheduleData.value.weekDayCount
 	})
 }
@@ -1203,8 +1290,7 @@ const getWeekCourseRenderList = (weekNumber) => {
 }
 
 const isSlotOccupied = (weekNumber, weekDay, section) => {
-	for (const course of ScheduleData.value.courseList) {
-		if (!isCourseInWeek(course, weekNumber)) continue
+	for (const course of getWeekCourses(weekNumber)) {
 		if (Number(course.week) !== weekDay) continue
 		const startSection = Number(course.section) || 1
 		const sectionCount = Math.max(1, Number(course.sectionCount) || 1)
@@ -1441,11 +1527,12 @@ const hydrateCourseGroupMetadata = async (course) => {
 	try {
 		const payload = await GetCourseInfo({ UserID: ScheduleData.value.UserID })
 		const freshOnline = normalizeCourseList(parseCourseListFromResponse(payload), 'online')
+		const freshOriginal = normalizeCourseList(parseOriginalCourseListFromResponse(payload), 'online')
 		const matched = freshOnline.find(item => isSameCourseOccurrence(item, course))
 		if (!matched || !getCourseGroupKey(matched)) {
 			throw new Error('接口暂未返回课程群所需字段')
 		}
-		mergeCourseData(freshOnline, getLocalCoursesByUser(ScheduleData.value.UserID))
+		mergeCourseData(freshOnline, getLocalCoursesByUser(ScheduleData.value.UserID), freshOriginal)
 		detailedConflictCourses.value = detailedConflictCourses.value.map(item => {
 			return getCourseOccurrenceIdentity(item) === requestedOccurrence ? matched : item
 		})
@@ -2239,11 +2326,12 @@ const GetScheduleData = async () => {
 		}
 
 		const onlineCourseList = normalizeCourseList(parseCourseListFromResponse(payload), 'online')
+		const originalOnlineCourseList = normalizeCourseList(parseOriginalCourseListFromResponse(payload), 'online')
 		// 方案B：后端统一下发的开学日期与学期标记
 		const serverStartDate = payload?.data?.semesterStartDate || payload?.semesterStartDate || ''
 		const serverMark = payload?.data?.semesterMark || payload?.semesterMark || ''
 		if (onlineCourseList.length > 0) {
-			mergeCourseData(onlineCourseList, getLocalCoursesByUser(ScheduleData.value.UserID))
+			mergeCourseData(onlineCourseList, getLocalCoursesByUser(ScheduleData.value.UserID), originalOnlineCourseList)
 			console.log('获取到的在线课表数据:', onlineCourseList);
 			
 			// 从本地存储加载用户设置
@@ -2406,7 +2494,7 @@ const GetScheduleData = async () => {
 		console.error('获取课表数据失败:', error);
 		if (error?.data?.staleCacheRejected) {
 			// 服务端已判定本机/数据库中的课表属于旧学期，立即停止展示旧课程。
-			mergeCourseData([], getLocalCoursesByUser(ScheduleData.value.UserID))
+			mergeCourseData([], getLocalCoursesByUser(ScheduleData.value.UserID), [])
 			persistScheduleCache()
 			uni.showModal({
 				title: '旧学期课表已清除',
@@ -2597,7 +2685,8 @@ const loadScheduleBySource = (options = {}) => {
 				}
 			}
 			const cachedOnline = extractOnlineCoursesFromCache(cachedScheduleData)
-			mergeCourseData(cachedOnline, getLocalCoursesByUser(ScheduleData.value.UserID))
+			const cachedOriginal = extractOriginalOnlineCoursesFromCache(cachedScheduleData)
+			mergeCourseData(cachedOnline, getLocalCoursesByUser(ScheduleData.value.UserID), cachedOriginal)
 			syncWeekToToday(true);
 			// 缓存模式（含夜间）也异步拉取服务端开学日期，避免顶部日期空白
 			refreshSemesterDateFromServer();
@@ -2999,6 +3088,36 @@ onUnmounted(() => {
 			align-items: center;
 			justify-content: center;
 			padding: 0 8px 0 8px;
+
+			.adjustment-view-switch {
+				position: absolute;
+				left: 8px;
+				top: 50%;
+				transform: translateY(-50%);
+				z-index: 5;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				gap: 4px;
+				min-width: 66px;
+				height: 32px;
+				padding: 0 9px;
+				box-sizing: border-box;
+				border-radius: 999px;
+				background: rgba(37, 99, 235, 0.12);
+				border: 1px solid rgba(37, 99, 235, 0.42);
+				color: #1d4ed8;
+				font-size: 12px;
+				font-weight: 700;
+				box-shadow: 0 4px 10px rgba(37, 99, 235, 0.12);
+			}
+
+			.adjustment-view-switch.original {
+				background: rgba(255, 255, 255, 0.62);
+				border-color: rgba(100, 116, 139, 0.32);
+				color: #475569;
+				box-shadow: 0 4px 10px rgba(71, 85, 105, 0.1);
+			}
 
 			.week-switch {
 				display: flex;
@@ -3750,6 +3869,15 @@ onUnmounted(() => {
 	.navbar {
 		.titleBar {
 			padding: 0 6px;
+
+			.adjustment-view-switch {
+				left: 4px;
+				min-width: 58px;
+				height: 27px;
+				padding: 0 6px;
+				gap: 2px;
+				font-size: 10px;
+			}
 
 			.week-switch {
 				padding: 2px 8px;
