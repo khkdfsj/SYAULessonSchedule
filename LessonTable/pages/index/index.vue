@@ -1,6 +1,6 @@
 <template>
 	<view class="page-root">
-	<image class="bgImg" src="/common/images/backgroundImg.png?v=20260915" mode="aspectFill" :fade-show="false" />
+	<image class="bgImg" src="/common/images/backgroundImg.png" />
 	<view class="bgMask"></view>
 	<view class="layout" :class="['mode-' + layoutMetrics.mode, animationEnabled ? 'anim-on' : 'anim-off']"
 		@click="handleGlobalTap()">
@@ -3001,8 +3001,6 @@ onUnmounted(() => {
 .page-root {
 	position: relative;
 	min-height: 100vh;
-	isolation: isolate;
-	background: linear-gradient(180deg, #a7b7ff 0%, #e5c4e8 34%, #ffd7b9 64%, #fff3d2 100%);
 }
 
 .bgImg {
@@ -3011,9 +3009,8 @@ onUnmounted(() => {
 	height: 100vh;
 	top: 0;
 	left: 0;
-	z-index: 0;
+	z-index: -1;
 	object-fit: cover;
-	pointer-events: none;
 }
 
 .bgMask {
@@ -3022,9 +3019,8 @@ onUnmounted(() => {
 	left: 0;
 	width: 100vw;
 	height: 100vh;
-	z-index: 1;
+	z-index: -1;
 	background: linear-gradient(180deg, rgba(249, 251, 255, 0.36) 0%, rgba(255, 255, 255, 0.16) 100%);
-	pointer-events: none;
 }
 
 .admin-debug-float {
