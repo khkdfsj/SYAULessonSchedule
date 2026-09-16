@@ -11,7 +11,7 @@
 1. 从最新 `main` 更新 `test`，在 `test` 上修改三处前端版本号；正式后端的 `APP_VERSION` 暂不修改。
 2. 使用 `scripts/build-test.ps1` 生成基路径为 `/LessonSchedule-test/` 的 HBuilderX 正式构建。
 3. 备份现有测试目录，部署到 bm `/www/server/nginx/html/LessonSchedule-test/`；测试入口由 `deploy/test-index.php` 校验现有管理员身份。
-4. 管理员在企业微信中验收登录、课表、设置、弹窗、反馈、课程详情和弱网首屏。
+4. 正式入口通过 `deploy/admin-entry.php` 识别现有管理员身份并自动跳转测试版，普通用户仍使用正式版；管理员在企业微信中验收登录、课表、设置、弹窗、反馈、课程详情和弱网首屏。
 5. 只有在项目负责人明确同意后，才将候选代码合并到 `main`，同步正式后端 `APP_VERSION`，部署正式目录并创建版本 tag。
 
 未经明确验收，不得执行第 5 步。
