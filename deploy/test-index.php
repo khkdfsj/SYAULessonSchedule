@@ -7,30 +7,7 @@ header('Pragma: no-cache');
 header('Expires: 0');
 
 require_once '/www/server/nginx/html/LessonSchedule/auth_session.php';
-
-$testConfigPath = '/www/server/nginx/html/LessonSchedule/.test-release-config.php';
-if (!is_file($testConfigPath)) {
-    http_response_code(503);
-    exit('内测身份校验尚未配置');
-}
-$testConfig = require $testConfigPath;
-if (!is_array($testConfig)) {
-    http_response_code(503);
-    exit('内测身份校验配置无效');
-}
-
-function readExactCookie(string $name): string
-{
-    $cookieHeader = (string) ($_SERVER['HTTP_COOKIE'] ?? '');
-    foreach (explode(';', $cookieHeader) as $segment) {
-        $parts = explode('=', trim($segment), 2);
-        if (count($parts) !== 2 || rawurldecode($parts[0]) !== $name) {
-            continue;
-        }
-        return rawurldecode($parts[1]);
-    }
-    return '';
-}
+require_once '/www/server/nginx/html/LessonSchedule/admin-access.php';
 
 function denyTestAccess(): void
 {
@@ -40,46 +17,8 @@ function denyTestAccess(): void
     exit;
 }
 
-$rawSession = readExactCookie('LessonSchedule.AuthSession');
-$decodedSession = $rawSession !== '' ? json_decode($rawSession, true) : null;
-if (is_array($decodedSession) && ($decodedSession['type'] ?? '') === 'object' && is_array($decodedSession['data'] ?? null)) {
-    $decodedSession = $decodedSession['data'];
-}
-if (!is_array($decodedSession)) {
-    denyTestAccess();
-}
-
-$userId = normalizeUserId($decodedSession['userId'] ?? $decodedSession['user_id'] ?? '');
-$authExp = normalizeAuthExpire($decodedSession['authExp'] ?? $decodedSession['auth_exp'] ?? '');
-$authSig = trim((string) ($decodedSession['authSig'] ?? $decodedSession['auth_sig'] ?? ''));
-if (!isAuthSignatureValid($userId, $authExp, $authSig)) {
-    denyTestAccess();
-}
-
-$conn = new mysqli(
-    (string) ($testConfig['db_host'] ?? '127.0.0.1'),
-    (string) ($testConfig['db_user'] ?? ''),
-    (string) ($testConfig['db_pass'] ?? ''),
-    (string) ($testConfig['db_name'] ?? ''),
-    (int) ($testConfig['db_port'] ?? 3306)
-);
-if ($conn->connect_error) {
-    http_response_code(503);
-    exit('内测身份校验暂不可用');
-}
-$conn->set_charset('utf8mb4');
-$stmt = $conn->prepare('SELECT 1 FROM feedback_admins WHERE user_id = ? AND enabled = 1 LIMIT 1');
-if (!$stmt) {
-    $conn->close();
-    denyTestAccess();
-}
-$stmt->bind_param('s', $userId);
-$stmt->execute();
-$result = $stmt->get_result();
-$isAdmin = $result && $result->fetch_row();
-$stmt->close();
-$conn->close();
-if (!$isAdmin) {
+$session = lessonResolveAuthenticatedUser();
+if ($session === null || !lessonIsEnabledAdmin($session['user_id'])) {
     denyTestAccess();
 }
 
