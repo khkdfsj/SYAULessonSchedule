@@ -2,6 +2,7 @@
 	<view class="page-root">
 	<image class="bgImg" src="/common/images/backgroundImg.png" />
 	<view class="bgMask"></view>
+	<view v-if="isTestBuild" class="test-build-badge">管理员内测 v{{ APP_VERSION }}</view>
 	<view class="layout" :class="['mode-' + layoutMetrics.mode, animationEnabled ? 'anim-on' : 'anim-off']"
 		@click="handleGlobalTap()">
 		<view class="navbar">
@@ -273,6 +274,7 @@ const COURSE_CONFLICT_NOTICE_KEY = 'LessonSchedule.CourseConflictNotice.v1'
 const SCHEDULE_ADJUSTMENT_VIEW_KEY = 'LessonSchedule.ScheduleAdjustmentViews.v1'
 let legacyManualCacheDetected = false
 let entryNoticeSequenceStarted = false
+const isTestBuild = typeof window !== 'undefined' && window.location.pathname.startsWith('/LessonSchedule-test/')
 const debugState = ref(getAdminDebugState())
 var ScheduleData = ref({
 	UserID: '',
@@ -3001,6 +3003,8 @@ onUnmounted(() => {
 .page-root {
 	position: relative;
 	min-height: 100vh;
+	isolation: isolate;
+	background: linear-gradient(180deg, #a7b7ff 0%, #e5c4e8 34%, #ffd7b9 64%, #fff3d2 100%);
 }
 
 .bgImg {
@@ -3009,8 +3013,9 @@ onUnmounted(() => {
 	height: 100vh;
 	top: 0;
 	left: 0;
-	z-index: -1;
+	z-index: 0;
 	object-fit: cover;
+	pointer-events: none;
 }
 
 .bgMask {
@@ -3019,8 +3024,24 @@ onUnmounted(() => {
 	left: 0;
 	width: 100vw;
 	height: 100vh;
-	z-index: -1;
+	z-index: 1;
 	background: linear-gradient(180deg, rgba(249, 251, 255, 0.36) 0%, rgba(255, 255, 255, 0.16) 100%);
+	pointer-events: none;
+}
+
+.test-build-badge {
+	position: fixed;
+	left: 12px;
+	bottom: calc(env(safe-area-inset-bottom) + 76px);
+	z-index: 120;
+	padding: 7px 11px;
+	border-radius: 999px;
+	background: rgba(37, 99, 235, 0.92);
+	box-shadow: 0 8px 22px rgba(37, 99, 235, 0.24);
+	color: #fff;
+	font-size: 11px;
+	font-weight: 700;
+	pointer-events: none;
 }
 
 .admin-debug-float {
