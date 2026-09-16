@@ -11,6 +11,10 @@ $originalManifest = [System.IO.File]::ReadAllText($manifestPath, [System.Text.En
 if ($originalManifest -notmatch '"base"\s*:\s*"/LessonSchedule/"') {
     throw 'manifest.json 中未找到正式版路由基路径，已停止测试构建。'
 }
+if ($originalManifest -notmatch '"versionName"\s*:\s*"(\d+\.\d+\.\d+)"') {
+    throw 'manifest.json 中未找到合法候选版本号，已停止测试构建。'
+}
+$candidateVersion = $Matches[1]
 
 $testManifest = [regex]::Replace(
     $originalManifest,
@@ -42,5 +46,10 @@ if ($indexHtml -notmatch '/LessonSchedule-test/assets/') {
 if ($indexHtml -match 'fetchpriority\s*=\s*["'']high["'']') {
     throw '测试构建包含高优先级大资源预加载，已停止部署。'
 }
+[System.IO.File]::WriteAllText(
+    (Join-Path $outputPath 'candidate-version.txt'),
+    $candidateVersion + [Environment]::NewLine,
+    [System.Text.UTF8Encoding]::new($false)
+)
 
-Write-Host "测试构建完成：$outputPath"
+Write-Host "测试构建完成：v$candidateVersion $outputPath"
