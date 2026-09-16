@@ -66,11 +66,18 @@ npm run dev        # vite dev server，接口经 /h5api 代理到线上 debug.91
 ## GitHub 分支/tag 流程（协作者规范）
 
 - `main` = 主线包（= 服务器正式版本），所有改动最终合并到 `main`
+- `test` = 下一版本管理员内测包；凡递增版本号，必须先部署 `test` 并经项目负责人明确验收
 - 每个协作者使用**自己的个人分支**（以自己的用户名命名，如 `bailun`、`wttmf`），
   不共用、不使用他人的分支
-- 发布流程（在自己分支上）：开发 → 测试 → 合并 `main` → 部署 → 打 tag `vX.Y.Z`
+- 带版本号的发布流程：个人分支开发 → 合并 `test` → 管理员内测 → 明确批准 → 合并 `main` → 正式部署 → 打 tag `vX.Y.Z`
+- 不递增版本号的小补丁可在验证和备份后直接上线；涉及入口、缓存、认证、构建、数据库或 Nginx 的补丁仍必须先内测
+- 测试版部署到独立的 `/LessonSchedule-test/`，由现有管理员身份校验；测试期间不得修改正式后端 `APP_VERSION`
+- 静态资源发布只允许合并新增文件，禁止清空线上 `assets/`，必须保留上一正式版所需的哈希资源
+- 完整规则见 `RELEASE_WORKFLOW.md`
+
+- 正式发布命令示例：
   ```
-  git checkout main && git merge --ff-only <自己的分支名> && git tag vX.Y.Z && git push origin main vX.Y.Z <自己的分支名>
+  git checkout main && git merge --ff-only test && git tag vX.Y.Z && git push origin main test vX.Y.Z
   ```
 - 回滚：`git checkout vX.Y.Z`（tag 即版本回滚点）
 - 小更新（修订位 0.4.x）只写 commit 日志；大版本升级（0.5.0、1.0.0）才集中撰写开发日志
