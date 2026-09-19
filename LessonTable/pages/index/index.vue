@@ -178,6 +178,7 @@
 							@click.stop="openScheduleAdjustmentNotice(DetailedCourseData)">
 							{{ DetailedCourseData.scheduleAdjustment.noticeTitle }}<text v-if="DetailedCourseData.scheduleAdjustment?.noticeUrl"> · 查看通知</text>
 						</view>
+						<view class="course-adjustment-disclaimer">调课为本系统按教务处通知自动计算生成，可能存在偏差，请以教务处官方通知为准；如与实际不符，可切换回原课表查看。</view>
 					</view>
 					<view class="course-Introduce">
 						<p class="course-Introduce-text"> 星期{{ ScheduleData.weekIndexText[DetailedCourseData.week - 1] || '-' }}
@@ -1211,7 +1212,10 @@ const getScheduleAdjustmentViewScope = (weekNumber) => {
 
 const getScheduleAdjustmentViewMode = (weekNumber) => {
 	const scope = getScheduleAdjustmentViewScope(weekNumber)
-	return scope && scheduleAdjustmentViewPreferences.value?.[scope] === 'original' ? 'original' : 'adjusted'
+	// 该周没有调课记录（如课程被调走的来源周）：直接用服务端已应用调课的数据
+	if (!scope) return 'adjusted'
+	// 有调课的周默认展示"原课表"，用户手动切到"调课后"后长期记住
+	return scheduleAdjustmentViewPreferences.value?.[scope] === 'adjusted' ? 'adjusted' : 'original'
 }
 
 const currentWeekHasScheduleAdjustment = computed(() => {
@@ -1229,7 +1233,8 @@ const toggleScheduleAdjustmentView = (event) => {
 	if (!scope) return
 	const nextMode = getScheduleAdjustmentViewMode(weekNumber) === 'original' ? 'adjusted' : 'original'
 	const nextPreferences = { ...scheduleAdjustmentViewPreferences.value }
-	if (nextMode === 'original') nextPreferences[scope] = 'original'
+	// 默认即"原课表"，因此只记住偏离默认的"调课后"
+	if (nextMode === 'adjusted') nextPreferences[scope] = 'adjusted'
 	else delete nextPreferences[scope]
 	scheduleAdjustmentViewPreferences.value = nextPreferences
 	uni.setStorageSync(SCHEDULE_ADJUSTMENT_VIEW_KEY, nextPreferences)
@@ -3731,6 +3736,15 @@ onUnmounted(() => {
 			color: #2563eb;
 			font-weight: 600;
 			word-break: break-word;
+		}
+
+		.course-adjustment-disclaimer {
+			margin-top: 8px;
+			padding-top: 7px;
+			border-top: 1px dashed rgba(37, 99, 235, 0.3);
+			color: #475569;
+			font-size: 11px;
+			line-height: 1.5;
 		}
 
 		.course-Introduce {
