@@ -95,12 +95,15 @@
 							:maxlength="item.maxLength || 120" :placeholder="item.hint || '可留空'"
 							@input="onTextInput(item, $event)" />
 
-						<view v-if="shouldAskFollowUp(item)" class="followup">
-							<view class="followup-title">{{ item.followUp.title }}</view>
-							<view v-if="item.followUp.hint" class="question-hint">{{ item.followUp.hint }}</view>
+						<view v-for="followUp in visibleFollowUps(item)" :key="followUp.key" class="followup">
+							<view class="followup-title">
+								{{ followUp.title }}
+								<text v-if="!followUp.required" class="optional">选填</text>
+							</view>
+							<view v-if="followUp.hint" class="question-hint">{{ followUp.hint }}</view>
 							<view class="option-list">
-								<view v-for="option in item.followUp.options" :key="option.key" class="option"
-									:class="{ active: isFollowPicked(item, option.key) }" @click="toggleFollow(item, option.key)">
+								<view v-for="option in followUp.options" :key="option.key" class="option"
+									:class="{ active: isFollowPicked(followUp, option.key) }" @click="pickFollow(followUp, option.key)">
 									{{ option.label }}
 								</view>
 							</view>
@@ -246,39 +249,53 @@ const onTextInput = (item, event) => {
 	answers.value = { ...answers.value, [item.key]: event.detail.value }
 }
 
-const shouldAskFollowUp = (item) => {
-	if (!item.followUp) return false
-	const when = item.followUp.when || []
-	return when.includes(String(answers.value[item.key] || ''))
+const followUpsOf = (item) => {
+	if (Array.isArray(item?.followUps)) return item.followUps
+	if (item?.followUp) return [item.followUp]
+	return []
 }
 
-const isFollowPicked = (item, optionKey) => {
-	const value = answers.value[item.followUp.key]
-	return Array.isArray(value) && value.includes(optionKey)
+// 只有父题选中 when 里列出的选项时，才展示对应的追问
+const visibleFollowUps = (item) => {
+	const value = String(answers.value[item.key] ?? '')
+	return followUpsOf(item).filter(followUp => (followUp.when || []).includes(value))
 }
 
-const toggleFollow = (item, optionKey) => {
-	const key = item.followUp.key
-	const current = Array.isArray(answers.value[key]) ? [...answers.value[key]] : []
-	const index = current.indexOf(optionKey)
-	if (index >= 0) {
-		current.splice(index, 1)
-	} else {
-		const max = Number(item.followUp.max) || 0
-		if (max > 0 && current.length >= max) {
-			uni.showToast({ title: `最多选择 ${max} 项`, icon: 'none' })
-			return
+const isFollowPicked = (followUp, optionKey) => {
+	const value = answers.value[followUp.key]
+	if (Array.isArray(value)) return value.includes(optionKey)
+	return String(value ?? '') === optionKey
+}
+
+const pickFollow = (followUp, optionKey) => {
+	if (followUp.type === 'multi') {
+		const current = Array.isArray(answers.value[followUp.key]) ? [...answers.value[followUp.key]] : []
+		const index = current.indexOf(optionKey)
+		if (index >= 0) {
+			current.splice(index, 1)
+		} else {
+			const max = Number(followUp.max) || 0
+			if (max > 0 && current.length >= max) {
+				uni.showToast({ title: `最多选择 ${max} 项`, icon: 'none' })
+				return
+			}
+			current.push(optionKey)
 		}
-		current.push(optionKey)
+		answers.value = { ...answers.value, [followUp.key]: current }
+		return
 	}
-	answers.value = { ...answers.value, [key]: current }
+	answers.value = { ...answers.value, [followUp.key]: optionKey }
+}
+
+const isEmptyAnswer = (value) => {
+	return value === undefined || value === null || value === ''
+		|| (Array.isArray(value) && value.length === 0)
 }
 
 const validate = () => {
 	for (const item of items.value) {
 		const value = answers.value[item.key]
-		const isEmpty = value === undefined || value === null || value === ''
-			|| (Array.isArray(value) && value.length === 0)
+		const isEmpty = isEmptyAnswer(value)
 		if (item.required && isEmpty) {
 			uni.showToast({ title: '还有必答题没有完成', icon: 'none' })
 			return false
@@ -286,6 +303,12 @@ const validate = () => {
 		if (item.type === 'rank' && !isEmpty && value.length !== item.options.length) {
 			uni.showToast({ title: '请把每一项都排好序', icon: 'none' })
 			return false
+		}
+		for (const followUp of visibleFollowUps(item)) {
+			if (followUp.required && isEmptyAnswer(answers.value[followUp.key])) {
+				uni.showToast({ title: '还有必答题没有完成', icon: 'none' })
+				return false
+			}
 		}
 	}
 	return true

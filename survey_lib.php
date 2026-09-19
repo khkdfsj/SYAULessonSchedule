@@ -132,6 +132,42 @@ function surveyItemDefinitions(): array
             'options' => $awarenessOptions,
         ],
         [
+            'key' => 'know_adjustment',
+            'block' => 'experience',
+            'type' => 'single',
+            'required' => true,
+            'quick' => true,
+            'title' => '课表的「假期调课」功能（假期前后的课程调整会自动显示在课表里），你知道吗？',
+            'options' => $awarenessOptions,
+            // 仅在"用过/知道"时追问：是否与官方通知核对、调课信息是否有误
+            'followUps' => [
+                [
+                    'key' => 'adjust_check_notice',
+                    'type' => 'single',
+                    'required' => true,
+                    'title' => '你会去和教务处官方通知核对吗？',
+                    'options' => [
+                        ['key' => 'always', 'label' => '每次都会核对'],
+                        ['key' => 'sometimes', 'label' => '有时会核对'],
+                        ['key' => 'never', 'label' => '基本不核对，直接看课表'],
+                    ],
+                    'when' => ['often', 'known'],
+                ],
+                [
+                    'key' => 'adjust_info_wrong',
+                    'type' => 'single',
+                    'required' => true,
+                    'title' => '你觉得课表里的调课信息有误吗？',
+                    'options' => [
+                        ['key' => 'wrong', 'label' => '有误，遇到过'],
+                        ['key' => 'fine', 'label' => '没发现错误'],
+                        ['key' => 'unknown', 'label' => '没注意过 / 说不准'],
+                    ],
+                    'when' => ['often', 'known'],
+                ],
+            ],
+        ],
+        [
             'key' => 'load_satisfaction',
             'block' => 'experience',
             'type' => 'single',
@@ -159,20 +195,22 @@ function surveyItemDefinitions(): array
                 ['key' => 'bad', 'label' => '挺烦的，希望换方式'],
                 ['key' => 'never', 'label' => '没遇到过弹窗'],
             ],
-            'followUp' => [
-                'key' => 'popup_alt',
-                'type' => 'multi',
-                'max' => 4,
-                'required' => false,
-                'title' => '你更能接受哪些提示方式？',
-                'hint' => '可多选',
-                'options' => [
-                    ['key' => 'delay', 'label' => '加载课表成功后 30 秒再弹出'],
-                    ['key' => 'banner', 'label' => '顶部横幅提示，不打断操作'],
-                    ['key' => 'wecom', 'label' => '发到企业微信消息里'],
-                    ['key' => 'setting', 'label' => '放在设置页通知板块单独查看'],
+            'followUps' => [
+                [
+                    'key' => 'popup_alt',
+                    'type' => 'multi',
+                    'max' => 4,
+                    'required' => false,
+                    'title' => '你更能接受哪些提示方式？',
+                    'hint' => '可多选',
+                    'options' => [
+                        ['key' => 'delay', 'label' => '加载课表成功后 30 秒再弹出'],
+                        ['key' => 'banner', 'label' => '顶部横幅提示，不打断操作'],
+                        ['key' => 'wecom', 'label' => '发到企业微信消息里'],
+                        ['key' => 'setting', 'label' => '放在设置页通知板块单独查看'],
+                    ],
+                    'when' => ['okay', 'bad'],
                 ],
-                'when' => ['okay', 'bad'],
             ],
         ],
         [
@@ -261,14 +299,30 @@ function surveyBlockDefinitions(): array
     ];
 }
 
+/**
+ * 取一道题的条件追问列表（兼容旧的单个 followUp 写法）。
+ */
+function surveyFollowUpsOf(array $item): array
+{
+    if (isset($item['followUps']) && is_array($item['followUps'])) {
+        return $item['followUps'];
+    }
+    if (isset($item['followUp']) && is_array($item['followUp'])) {
+        return [$item['followUp']];
+    }
+    return [];
+}
+
 function surveyItemByKey(string $key): ?array
 {
     foreach (surveyItemDefinitions() as $item) {
         if ($item['key'] === $key) {
             return $item;
         }
-        if (isset($item['followUp']) && $item['followUp']['key'] === $key) {
-            return $item['followUp'];
+        foreach (surveyFollowUpsOf($item) as $followUp) {
+            if (($followUp['key'] ?? '') === $key) {
+                return $followUp;
+            }
         }
     }
     return null;
@@ -276,9 +330,10 @@ function surveyItemByKey(string $key): ?array
 
 function surveyQuickPool(): array
 {
+    // 只从"体验题"里抽；推荐意愿/共建意愿无论抽不抽都会被固定追加，放进池子会导致重复出题
     $pool = [];
     foreach (surveyItemDefinitions() as $item) {
-        if (!empty($item['quick'])) {
+        if (!empty($item['quick']) && $item['block'] === 'experience') {
             $pool[] = $item['key'];
         }
     }
@@ -307,7 +362,7 @@ function surveyQuickSelection(string $userId, string $roundKey): array
     foreach (['recommend_score', 'coop_willing'] as $tail) {
         $keys[] = $tail;
     }
-    return $keys;
+    return array_values(array_unique($keys));
 }
 
 function surveyFullSelection(): array
@@ -349,18 +404,25 @@ function surveyItemsForKeys(array $keys): array
                 $entry[$field] = $item[$field];
             }
         }
-        if (isset($item['followUp'])) {
-            $followUp = $item['followUp'];
-            $entry['followUp'] = [
-                'key' => $followUp['key'],
-                'type' => $followUp['type'],
-                'title' => $followUp['title'],
-                'hint' => $followUp['hint'] ?? '',
-                'required' => !empty($followUp['required']),
-                'options' => $followUp['options'] ?? [],
-                'max' => $followUp['max'] ?? 0,
-                'when' => $followUp['when'] ?? [],
-            ];
+        if (isset($item['followUps']) || isset($item['followUp'])) {
+            $entry['followUps'] = [];
+            foreach (surveyFollowUpsOf($item) as $followUp) {
+                $followEntry = [
+                    'key' => $followUp['key'],
+                    'type' => $followUp['type'],
+                    'title' => $followUp['title'],
+                    'hint' => $followUp['hint'] ?? '',
+                    'required' => !empty($followUp['required']),
+                    'options' => $followUp['options'] ?? [],
+                    'when' => $followUp['when'] ?? [],
+                ];
+                foreach (['max', 'min', 'maxLength'] as $field) {
+                    if (isset($followUp[$field])) {
+                        $followEntry[$field] = $followUp[$field];
+                    }
+                }
+                $entry['followUps'][] = $followEntry;
+            }
         }
         $items[] = $entry;
     }
@@ -533,18 +595,18 @@ function surveyRoundResults(mysqli $conn, int $roundId): array
         foreach ($item['options'] ?? [] as $option) {
             $entry['options'][$option['key']] = ['label' => $option['label'], 'count' => 0];
         }
-        if (isset($item['followUp'])) {
-            $followUp = $item['followUp'];
+        foreach (surveyFollowUpsOf($item) as $followUp) {
             $followUpParent[$followUp['key']] = $item['key'];
-            $entry['followUp'] = [
+            $followEntry = [
                 'key' => $followUp['key'],
                 'title' => $followUp['title'],
                 'answered' => 0,
                 'options' => [],
             ];
             foreach ($followUp['options'] ?? [] as $option) {
-                $entry['followUp']['options'][$option['key']] = ['label' => $option['label'], 'count' => 0];
+                $followEntry['options'][$option['key']] = ['label' => $option['label'], 'count' => 0];
             }
+            $entry['followUps'][] = $followEntry;
         }
         $byItem[$item['key']] = $entry;
     }
@@ -553,20 +615,30 @@ function surveyRoundResults(mysqli $conn, int $roundId): array
         $itemKey = (string) $row['item_key'];
         $answer = json_decode((string) $row['answer_json'], true);
 
-        // 条件追问：答案归属到父题的 followUp 里展示
+        // 条件追问：答案归属到父题对应的追问里展示
         if (isset($followUpParent[$itemKey])) {
             $parentKey = $followUpParent[$itemKey];
-            $target = &$byItem[$parentKey]['followUp'];
-            $target['answered']++;
-            $values = is_array($answer) ? $answer : [$answer];
-            foreach ($values as $value) {
-                $value = (string) $value;
-                if (isset($target['options'][$value])) {
-                    $target['options'][$value]['count']++;
+            $handled = false;
+            foreach ($byItem[$parentKey]['followUps'] as $index => $followEntry) {
+                if ($followEntry['key'] !== $itemKey) {
+                    continue;
                 }
+                $target = &$byItem[$parentKey]['followUps'][$index];
+                $target['answered']++;
+                $values = is_array($answer) ? $answer : [$answer];
+                foreach ($values as $value) {
+                    $value = (string) $value;
+                    if (isset($target['options'][$value])) {
+                        $target['options'][$value]['count']++;
+                    }
+                }
+                unset($target);
+                $handled = true;
+                break;
             }
-            unset($target);
-            continue;
+            if ($handled) {
+                continue;
+            }
         }
 
         if (!isset($byItem[$itemKey])) {

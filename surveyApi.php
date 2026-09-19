@@ -328,18 +328,24 @@ try {
             }
             $prepared[$key] = $value;
 
-            if (isset($item['followUp'])) {
-                $followUp = $item['followUp'];
+            foreach (surveyFollowUpsOf($item) as $followUp) {
                 $needFollowUp = in_array((string) $value, $followUp['when'] ?? [], true);
-                if ($needFollowUp && array_key_exists($followUp['key'], $rawAnswers)) {
-                    $followError = '';
-                    $followValue = surveyNormalizeAnswer($followUp, $rawAnswers[$followUp['key']], $followError);
-                    if ($followValue === null) {
-                        sendSurveyJson(422, 422, $followError !== '' ? $followError : '答案不正确');
+                if (!$needFollowUp) {
+                    continue;
+                }
+                if (!array_key_exists($followUp['key'], $rawAnswers)) {
+                    if (!empty($followUp['required'])) {
+                        sendSurveyJson(422, 422, '还有必答题没有完成');
                     }
-                    if ($followValue !== '' && $followValue !== []) {
-                        $prepared[$followUp['key']] = $followValue;
-                    }
+                    continue;
+                }
+                $followError = '';
+                $followValue = surveyNormalizeAnswer($followUp, $rawAnswers[$followUp['key']], $followError);
+                if ($followValue === null) {
+                    sendSurveyJson(422, 422, $followError !== '' ? $followError : '答案不正确');
+                }
+                if ($followValue !== '' && $followValue !== []) {
+                    $prepared[$followUp['key']] = $followValue;
                 }
             }
         }

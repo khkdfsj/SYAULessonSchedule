@@ -134,17 +134,17 @@
 								<view v-for="(text, index) in item.texts" :key="index" class="result-text">· {{ text }}</view>
 							</view>
 
-							<view v-if="item.followUp" class="result-followup">
+							<view v-for="followUp in (item.followUps || [])" :key="followUp.key" class="result-followup">
 								<view class="result-title">
-									{{ item.followUp.title }}
-									<text class="result-count">已答 {{ item.followUp.answered }}</text>
+									{{ followUp.title }}
+									<text class="result-count">已答 {{ followUp.answered }}</text>
 								</view>
-								<view v-for="(option, key) in item.followUp.options" :key="key" class="result-option">
+								<view v-for="(option, key) in followUp.options" :key="key" class="result-option">
 									<view class="result-option-head">
 										<text>{{ option.label }}</text>
-										<text>{{ option.count }} · {{ percent(option.count, item.followUp.answered) }}%</text>
+										<text>{{ option.count }} · {{ percent(option.count, followUp.answered) }}%</text>
 									</view>
-									<view class="bar-track"><view class="bar-fill" :style="{ width: percent(option.count, item.followUp.answered) + '%' }"></view></view>
+									<view class="bar-track"><view class="bar-fill" :style="{ width: percent(option.count, followUp.answered) + '%' }"></view></view>
 								</view>
 							</view>
 						</view>
