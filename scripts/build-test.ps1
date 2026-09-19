@@ -25,9 +25,10 @@ $testManifest = [regex]::Replace(
 
 try {
     [System.IO.File]::WriteAllText($manifestPath, $testManifest, [System.Text.UTF8Encoding]::new($false))
-    # 注意：cli open 是阻塞调用（不返回），必须后台启动 GUI 再执行构建
+    # 注意：cli open 是阻塞调用（不返回），必须后台启动 GUI 再执行构建；
+    # 冷启动需等约 40 秒，否则 publish 会报"与主程序的连接已中断"
     Start-Process -FilePath $HBuilderCli -ArgumentList 'open'
-    Start-Sleep -Seconds 15
+    Start-Sleep -Seconds 40
     & $HBuilderCli publish --platform web --project LessonTable | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "HBuilderX 测试构建失败，退出码：$LASTEXITCODE"
