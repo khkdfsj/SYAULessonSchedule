@@ -80,11 +80,10 @@ function surveyItemDefinitions(): array
             'key' => 'open_purpose',
             'block' => 'usage',
             'type' => 'multi',
-            'max' => 3,
             'required' => true,
             'quick' => false,
             'title' => '你一般在什么时候打开课表？',
-            'hint' => '最多选 3 项',
+            'hint' => '可多选，不限项数',
             'options' => [
                 ['key' => 'before_class', 'label' => '上课前查教室'],
                 ['key' => 'today', 'label' => '看今天有没有课'],
