@@ -40,14 +40,14 @@
 			</view>
 		</scroll-view>
 
-		<view v-if="editorOpen" class="editor-mask" @click="closeEditor" @touchmove.stop.prevent>
-			<view class="editor" @click.stop>
+		<view v-if="editorOpen" class="editor-mask" @click="closeEditor" @touchmove.prevent>
+			<view class="editor" @click.stop @touchmove.stop>
 				<view class="editor-grip"></view>
 				<view class="editor-head">
 					<view class="editor-title">{{ form.id ? '编辑调课计划' : '新建调课计划' }}</view>
 					<view class="editor-close" @click="closeEditor">取消</view>
 				</view>
-				<scroll-view scroll-y class="editor-scroll">
+				<view class="editor-scroll">
 					<view class="field-label">计划名称</view>
 					<input v-model="form.name" class="text-input" maxlength="120" placeholder="例如：节假日前后课程调整" />
 					<view class="field-label">所属学期</view>
@@ -90,7 +90,7 @@
 							<picker :range="weekdayOptions" range-key="label" @change="selectRuleOption(index, 'targetWeekday', weekdayOptions, $event)"><view class="mini-select">周{{ weekdayLabel(rule.targetWeekday) }}</view></picker>
 						</view>
 					</view>
-				</scroll-view>
+				</view>
 				<view class="editor-footer">
 					<view class="save-btn" :class="{ disabled: saving }" @click="savePlan">{{ saving ? '正在保存…' : '保存计划' }}</view>
 				</view>
@@ -267,13 +267,14 @@ onShow(loadPlans)
 .action-btn.primary { background: #2563eb; color: #fff; }
 .action-btn.warn { background: #fff7ed; color: #c2410c; }
 .action-btn.danger { background: #fff1f2; color: #be123c; }
-.editor-mask { position: fixed; inset: 0; z-index: 4000; background: rgba(15, 23, 42, .42); display: flex; align-items: flex-end; }
-.editor { width: 100%; max-height: 92vh; background: #f8fafc; border-radius: 28rpx 28rpx 0 0; display: flex; flex-direction: column; padding-bottom: env(safe-area-inset-bottom); }
+/* 层级需低于 uni-app 原生 picker（uni-mask/uni-picker-container = 999），否则下拉选择层会被本遮罩盖住 */
+.editor-mask { position: fixed; inset: 0; z-index: 900; background: rgba(15, 23, 42, .42); display: flex; align-items: flex-end; }
+.editor { width: 100%; max-height: 92vh; background: #f8fafc; border-radius: 28rpx 28rpx 0 0; display: flex; flex-direction: column; overflow: hidden; padding-bottom: env(safe-area-inset-bottom); }
 .editor-grip { width: 76rpx; height: 8rpx; margin: 14rpx auto 4rpx; border-radius: 999rpx; background: #cbd5e1; }
 .editor-head { height: 78rpx; padding: 0 26rpx; display: flex; align-items: center; justify-content: space-between; }
 .editor-title { font-size: 30rpx; font-weight: 750; }
 .editor-close { font-size: 23rpx; color: #64748b; }
-.editor-scroll { flex: 1; min-height: 0; padding: 0 24rpx 28rpx; box-sizing: border-box; }
+.editor-scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 24rpx 28rpx; box-sizing: border-box; }
 .field-label { margin: 20rpx 0 9rpx; font-size: 23rpx; font-weight: 700; color: #334155; }
 .text-input, .select-input { min-height: 78rpx; padding: 0 20rpx; border-radius: 16rpx; background: #fff; box-shadow: inset 0 0 0 1rpx #dbe3ee; box-sizing: border-box; font-size: 24rpx; }
 .select-input { display: flex; align-items: center; justify-content: space-between; }

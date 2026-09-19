@@ -1,7 +1,11 @@
 <template>
 	<view class="page-root">
-	<image class="bgImg" src="/common/images/backgroundImg.png" />
-	<view class="bgMask"></view>
+	<!-- 背景层单独包裹并自建层叠上下文：.page-root 若自身形成层叠上下文（isolation），
+	     会把内部 2199/2200 的弹窗层级一并限制住，导致弹窗被 uni-tabbar(998) 盖住 -->
+	<view class="bg-layer">
+		<image class="bgImg" src="/common/images/backgroundImg.png" />
+		<view class="bgMask"></view>
+	</view>
 	<view v-if="isTestBuild" class="test-build-badge">管理员内测 v{{ APP_VERSION }}</view>
 	<view class="layout" :class="['mode-' + layoutMetrics.mode, animationEnabled ? 'anim-on' : 'anim-off']"
 		@click="handleGlobalTap()">
@@ -3003,8 +3007,19 @@ onUnmounted(() => {
 .page-root {
 	position: relative;
 	min-height: 100vh;
-	isolation: isolate;
 	background: linear-gradient(180deg, #a7b7ff 0%, #e5c4e8 34%, #ffd7b9 64%, #fff3d2 100%);
+}
+
+/* 背景图层：隔离在本层内，避免固定定位的背景参与页面根的层叠顺序 */
+.bg-layer {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100vw;
+	height: 100vh;
+	z-index: 0;
+	isolation: isolate;
+	pointer-events: none;
 }
 
 .bgImg {
