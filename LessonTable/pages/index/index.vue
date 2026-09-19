@@ -11,7 +11,7 @@
 		@click="handleGlobalTap()">
 		<view class="navbar">
 			<view class="statusBar" :style="{ height: getStatusBarHeight() + 'px' }"></view>
-			<view class="titleBar"
+			<view class="titleBar" :class="{ 'has-survey': surveyEntryVisible }"
 				:style="{ height: getTitleBarHeight() + 'px', paddingLeft: getLeftIconLeft() + 'px' }">
 				<view v-if="currentWeekHasScheduleAdjustment" class="adjustment-view-switch ripple-host ripple-clip"
 					:class="{ original: currentScheduleViewMode === 'original' }" @click.stop="toggleScheduleAdjustmentView($event)">
@@ -22,6 +22,11 @@
 					<view class="title">第{{ ScheduleData.TemporaryWeek }}周</view>
 					<UniIcons class="icon" :class="{ open: activeSheet === 'week' && bottomSheetVisible }" type="down" color="#1f2937"
 						:size="getWeekSwitchIconSize()"></UniIcons>
+				</view>
+				<!-- 调研入口：由后端控制显示（关闭后完全不占位），填完两种问卷后自动隐藏 -->
+				<view v-if="surveyEntryVisible" class="survey-entry ripple-host ripple-clip" @click.stop="goSurvey($event)">
+					<text class="survey-entry-text">课表调研</text>
+					<view class="survey-entry-dot"></view>
 				</view>
 				<view class="setting-btn ripple-host ripple-clip" @click="goToSettings($event)">
 					<UniIcons type="gear-filled" :size="getSettingIconSize()" color="#334155"></UniIcons>
@@ -247,6 +252,9 @@ import {
 	getFeedbackSession
 } from "@/api/feedback.js"
 import {
+	getSurveyEntry
+} from "@/api/surveys.js"
+import {
 	clearAuthSession,
 	clearComWxAutoAuthAttempt,
 	exitAdminDebugSession,
@@ -280,6 +288,34 @@ const SCHEDULE_ADJUSTMENT_VIEW_KEY = 'LessonSchedule.ScheduleAdjustmentViews.v1'
 let legacyManualCacheDetected = false
 let entryNoticeSequenceStarted = false
 const isTestBuild = typeof window !== 'undefined' && window.location.pathname.startsWith('/LessonSchedule-test/')
+
+// 课表调研入口：显示与否由后端问卷期次控制（关闭后完全不占位）
+const surveyEntry = ref({ enabled: false, filled: { quick: false, full: false } })
+const surveyEntryVisible = computed(() => {
+	return !!surveyEntry.value.enabled && !(surveyEntry.value.filled?.quick && surveyEntry.value.filled?.full)
+})
+
+const refreshSurveyEntry = async () => {
+	try {
+		const response = await getSurveyEntry()
+		const data = response?.data || {}
+		surveyEntry.value = {
+			enabled: !!data.enabled,
+			filled: data.filled || { quick: false, full: false }
+		}
+	} catch (error) {
+		// 问卷服务异常不影响课表主流程
+		surveyEntry.value = { enabled: false, filled: { quick: false, full: false } }
+	}
+}
+
+const goSurvey = (event) => {
+	triggerRipple(event)
+	uni.navigateTo({
+		url: '/pages/survey/index'
+	})
+}
+
 const debugState = ref(getAdminDebugState())
 var ScheduleData = ref({
 	UserID: '',
@@ -2744,6 +2780,8 @@ const refreshSemesterDateFromServer = async () => {
 const bootstrapIndexPage = async (routeParams = {}) => {
 	updateLayoutMetrics();
 	closeBottomSheet();
+	// 问卷入口状态：问卷服务部署在外网，夜间（内网关闭）同样可获取
+	refreshSurveyEntry();
 	ensureDataSourcePreference()
 	loadCourseConflictPreferences()
 	await showDataSourceMigrationNotice()
@@ -2886,6 +2924,8 @@ onShow(() => {
 	closeBottomSheet();
 	clearArmedEmptySlot()
 	if (ScheduleData.value.courseList.length) scheduleEntryNotices(600)
+	// 从问卷页返回后同步入口状态（填完两种问卷即隐藏）
+	refreshSurveyEntry()
 
 	// 重新加载设置
 	loadSettings();
@@ -3158,6 +3198,41 @@ onUnmounted(() => {
 				border-color: rgba(100, 116, 139, 0.32);
 				color: #475569;
 				box-shadow: 0 4px 10px rgba(71, 85, 105, 0.1);
+			}
+
+			.survey-entry {
+				position: absolute;
+				right: 48px;
+				top: 50%;
+				transform: translateY(-50%);
+				z-index: 5;
+				display: flex;
+				align-items: center;
+				gap: 4px;
+				height: 30px;
+				padding: 0 10px;
+				box-sizing: border-box;
+				border-radius: 999px;
+				background: linear-gradient(135deg, #2563eb, #0ea5e9);
+				box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28);
+			}
+
+			.survey-entry-text {
+				font-size: 12px;
+				font-weight: 700;
+				color: #ffffff;
+			}
+
+			.survey-entry-dot {
+				width: 6px;
+				height: 6px;
+				border-radius: 999px;
+				background: #fde047;
+			}
+
+			/* 入口出现时给周次让出空间，避免小屏与调研入口重叠 */
+			&.has-survey .week-switch {
+				max-width: calc(100% - 158px);
 			}
 
 			.week-switch {

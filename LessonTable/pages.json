@@ -105,6 +105,20 @@
 			}
 		},
 		{
+			"path" : "pages/survey/index",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
+			"path" : "pages/admin-surveys/index",
+			"style" :
+			{
+				"navigationBarTitleText" : ""
+			}
+		},
+		{
 			"path" : "pages/devlog/index",
 			"style" :
 			{

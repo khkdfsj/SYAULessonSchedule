@@ -66,6 +66,13 @@
 					</view>
 					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
 				</view>
+				<view class="row row-link" v-if="sessionInfo.is_admin && !debugState" @click="goAdminSurveys">
+					<view class="row-main">
+						<view class="row-title">问卷管理</view>
+						<view class="row-subtitle">管理每期调研问卷的发布状态与查看数据。</view>
+					</view>
+					<uni-icons type="right" size="18" color="#94a3b8"></uni-icons>
+				</view>
 				<view class="row" v-if="identitySummary.account">
 					<view class="row-main">
 						<view class="row-title">已保存账号</view>
@@ -567,6 +574,12 @@ const goAdminMembers = () => {
 const goAdminAdjustments = () => {
 	uni.navigateTo({
 		url: '/pages/admin-adjustments/index'
+	})
+}
+
+const goAdminSurveys = () => {
+	uni.navigateTo({
+		url: '/pages/admin-surveys/index'
 	})
 }
 
