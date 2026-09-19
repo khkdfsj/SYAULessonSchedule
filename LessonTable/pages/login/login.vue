@@ -28,7 +28,15 @@
 				</view>
 			</view>
 
-			<view class="card">
+			<view v-if="nightMode" class="card night-card">
+				<view class="card-title">现在是夜间服务关闭时段</view>
+				<view class="night-copy">
+					22:00–次日 06:00 统一身份认证与学校实时课表服务暂停，暂时无法登录。
+					如果你的课表已有缓存，可以点上方「进入缓存课表」直接查看；否则请在白天重新进入。
+				</view>
+			</view>
+
+			<view v-if="!nightMode" class="card">
 				<view class="card-title">统一身份认证</view>
 
 				<view class="field-label">账号</view>
@@ -95,6 +103,7 @@
 import { computed, ref } from 'vue'
 import { loginWithStudentProfile } from '@/api/auth.js'
 import { getErrorMessage } from '@/utils/http.js'
+import { isEnterpriseServiceOfflineTime } from '@/utils/dataSource.js'
 import {
 	clearComWxAutoAuthAttempt,
 	getIdentitySummary,
@@ -102,6 +111,9 @@ import {
 	saveManualLoginState,
 	setCurrentUserId
 } from '@/utils/auth.js'
+
+// 夜间（22:00–06:00）认证服务不可用：不展示登录表单，只提示用缓存进入
+const nightMode = ref(isEnterpriseServiceOfflineTime())
 
 const account = ref('')
 const password = ref('')
@@ -168,7 +180,9 @@ const toggleRememberPassword = () => {
 
 const enterCachedCourse = () => {
 	const manualState = getManualLoginState()
-	const userId = manualState?.userId || savedSummary.value.userId
+	const localCachedUserId = `${uni.getStorageSync('ScheduleData')?.UserID || ''}`.trim()
+	// 身份来源放宽：手动登录记录 → 已保存身份 → 本机课表缓存里的学号
+	const userId = manualState?.userId || savedSummary.value.userId || localCachedUserId
 	if (!userId) {
 		uni.showToast({
 			title: '当前没有可用的缓存身份',
@@ -337,6 +351,18 @@ onShow(() => {
 .saved-card,
 .card {
 	margin-bottom: 18rpx;
+}
+
+.night-card {
+	background: rgba(239, 246, 255, 0.96);
+	box-shadow: 0 18rpx 40rpx rgba(37, 99, 235, 0.08);
+}
+
+.night-copy {
+	margin-top: 12rpx;
+	font-size: 24rpx;
+	line-height: 1.7;
+	color: #475569;
 }
 
 .saved-title,

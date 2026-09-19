@@ -260,6 +260,7 @@ import {
 	exitAdminDebugSession,
 	getAdminDebugState,
 	getAuthSession,
+	getCurrentUserId,
 	hydrateCurrentUserFromManualState,
 	markComWxAutoAuthAttempt,
 	saveAuthSessionFromRoute,
@@ -269,6 +270,7 @@ import {
 } from "@/utils/auth.js"
 import {
 	getPreferredDataSource,
+	isEnterpriseServiceOfflineTime,
 	normalizeDataSourcePreference
 } from "@/utils/dataSource.js"
 import UniPopup from "@/uni_modules/uni-popup/components/uni-popup/uni-popup.vue"
@@ -1672,6 +1674,10 @@ const handleCourseGroupError = async (course, response) => {
 		error: false
 	})
 	if (Number(response?.code) === 401) {
+		if (isEnterpriseServiceOfflineTime()) {
+			uni.showToast({ title: '夜间认证服务暂停，请在白天操作', icon: 'none' })
+			return
+		}
 		const result = await showCourseGroupModal({
 			title: '身份认证已失效',
 			content: '需要重新认证后才能操作课程群。',
@@ -2347,7 +2353,7 @@ const persistScheduleCache = () => {
 	uni.setStorageSync('ScheduleData', ScheduleData.value)
 }
 
-const GetScheduleData = async () => {
+const GetScheduleData = async (options = {}) => {
 	try {
 		const payload = await GetCourseInfo({
 			UserID: ScheduleData.value.UserID
@@ -2520,12 +2526,16 @@ const GetScheduleData = async () => {
 			// 保存完整的课表数据到本地存储
 			persistScheduleCache()
 			
-			// 显示成功提示
-			uni.showToast({
-				title: '课表加载成功',
-				icon: 'success',
-				duration: 1500
-			});
+			// 显示成功提示（夜间从服务端取库缓存时用夜间说明代替普通 toast）
+			if (options.nightServerCache) {
+				showNightServiceNotice(true)
+			} else {
+				uni.showToast({
+					title: '课表加载成功',
+					icon: 'success',
+					duration: 1500
+				});
+			}
 			scheduleEntryNotices(1700)
 		} else {
 			console.warn('没有获取到有效的课表数据');
@@ -2551,6 +2561,11 @@ const GetScheduleData = async () => {
 			})
 			return
 		}
+		if (options.nightServerCache) {
+			// 夜间本机无缓存、服务端也没有该用户的库缓存：不跳登录页，提示后留空白
+			showNightServiceNotice(false)
+			return
+		}
 		uni.showToast({
 			title: '加载课表失败',
 			icon: 'error',
@@ -2558,7 +2573,6 @@ const GetScheduleData = async () => {
 		});
 	}
 }
-
 const courseDataRefresh = function () {
 	openPopupSafely(updatePromptRef)
 }
@@ -2610,18 +2624,12 @@ const buildComWxAuthEntryUrl = () => {
 	return `https://syauinfo.syau.edu.cn/LessonSchedule/index.php?kind=${encodeURIComponent(appRootUrl)}`
 }
 
-const isEnterpriseServiceOfflineTime = () => {
-	const beijingNow = new Date(Date.now() + 8 * 60 * 60 * 1000)
-	const hour = beijingNow.getUTCHours()
-	return hour >= 22 || hour < 6
-}
-
 const showNightServiceNotice = (hasCache) => {
 	uni.showModal({
-		title: hasCache ? '当前使用缓存课表' : '夜间认证服务暂不可用',
+		title: hasCache ? '当前使用缓存课表' : '夜间暂无课表数据',
 		content: hasCache
-			? '当前为夜间服务关闭时段（22:00–次日06:00），已为你加载本机缓存课表。实时更新、反馈和课程评论等功能请在白天重新认证后使用。'
-			: '当前为夜间服务关闭时段（22:00–次日06:00），企业微信认证和学校实时课表服务暂不可用。当前设备没有可确认身份的课表缓存，请在白天重新进入。',
+			? '当前为夜间服务关闭时段（22:00–次日06:00），已为你加载可用的课表缓存。实时更新、反馈和课程评论等功能请在白天重新认证后使用。'
+			: '当前为夜间服务关闭时段（22:00–次日06:00），认证与实时课表服务暂停，也没有找到你的课表缓存。请在白天重新进入。',
 		showCancel: false,
 		confirmText: '知道了',
 		success: () => scheduleEntryNotices(250)
@@ -2742,6 +2750,12 @@ const loadScheduleBySource = (options = {}) => {
 	}
 
 	if (cacheOnly) {
+		// 夜间：本机没有缓存但身份明确 → 直接向服务端要数据库缓存
+		// （curlGetSyauInfo.php 在 22:00–06:00 会返回 ScheduleData 表里的库缓存）
+		if (isEnterpriseServiceOfflineTime() && ScheduleData.value.UserID) {
+			GetScheduleData({ nightServerCache: true })
+			return
+		}
 		uni.showToast({
 			title: '当前没有可用的缓存课表',
 			icon: 'none'
@@ -2811,7 +2825,10 @@ const bootstrapIndexPage = async (routeParams = {}) => {
 	const cacheEntry = `${routeParams.cache_entry || ''}` === '1'
 
 	if (!resolvedUserId && cacheEntry) {
-		resolvedUserId = hydrateCurrentUserFromManualState() || ''
+		// 缓存入口：身份来源放宽到 会话 / 本机当前身份 / 手动登录记录 / 本机课表缓存里的学号
+		const localCachedUserId = `${uni.getStorageSync('ScheduleData')?.UserID || ''}`.trim()
+		resolvedUserId = hydrateCurrentUserFromManualState() || getCurrentUserId()
+			|| previousSession?.userId || localCachedUserId || ''
 		if (resolvedUserId) {
 			setCurrentUserId(resolvedUserId)
 		}
@@ -2819,24 +2836,34 @@ const bootstrapIndexPage = async (routeParams = {}) => {
 
 	if (!resolvedUserId && isEnterpriseServiceOfflineTime()) {
 		const cachedScheduleData = uni.getStorageSync('ScheduleData')
-		const rememberedUserId = previousSession?.userId || ''
-		const cachedUserId = `${cachedScheduleData?.UserID || ''}`.trim()
-		const canUseCache = !!rememberedUserId && cachedUserId === rememberedUserId &&
-			cachedScheduleData && typeof cachedScheduleData === 'object'
+		const localCachedUserId = `${cachedScheduleData?.UserID || ''}`.trim()
+		const rememberedUserId = previousSession?.userId || getCurrentUserId()
+			|| hydrateCurrentUserFromManualState() || localCachedUserId
 
-		if (canUseCache) {
+		if (rememberedUserId) {
 			ScheduleData.value.UserID = rememberedUserId
 			setCurrentUserId(rememberedUserId)
+			const hasLocalCache = localCachedUserId === rememberedUserId && !!cachedScheduleData
+			// 本机有缓存就用本机；本机没有则由 loadScheduleBySource 向服务端要库缓存
 			loadScheduleBySource({ cacheOnly: true })
-			showNightServiceNotice(true)
+			// 本机无缓存时不抢先提示，交给服务端取数的结果来决定提示内容
+			if (hasLocalCache) {
+				showNightServiceNotice(true)
+			}
 			return
 		}
 
+		// 夜间拿不到身份且本机无任何缓存：夜间无法登录，不再跳登录页，提示后留空白
 		showNightServiceNotice(false)
 		return
 	}
 
 	if (!resolvedUserId) {
+		// 保险：夜间绝不跳登录页（登录需要内网认证，夜里必然失败）
+		if (isEnterpriseServiceOfflineTime()) {
+			showNightServiceNotice(false)
+			return
+		}
 		const env = envjudge();
 		if ((env === 'com-wx-mobile' || env === 'com-wx-pc') && shouldAttemptComWxAutoAuth()) {
 			markComWxAutoAuthAttempt()
